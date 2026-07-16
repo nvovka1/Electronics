@@ -2,7 +2,7 @@
  * ESP32 Movement Detector
  * ------------------------
  * A PIR motion sensor (HC-SR501) drives an LED + buzzer, and an I2C OLED
- * (SSD1306, 128x64 @ 0x3C) shows "ON" while motion is active, "OFF" otherwise.
+ * (SSD1306, 128x64) shows "ON" while motion is active, "OFF" otherwise.
  *
  * Wiring:
  *   PIR OUT   -> GPIO 13
@@ -27,7 +27,7 @@ constexpr uint8_t I2C_SCL    = 22;  // OLED SCL
 // --- OLED configuration ---
 #define SCREEN_WIDTH  128
 #define SCREEN_HEIGHT 64
-#define OLED_ADDR     0x3C          // use 0x3D if your I2C scan showed that
+#define OLED_ADDR     0x3C          // most SSD1306 modules; some use 0x3D
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);  // -1 = no reset pin
 
 // Keep the LED on for a short "hold" time after the last motion so it does
@@ -64,29 +64,14 @@ void setup() {
 
   Wire.begin(I2C_SDA, I2C_SCL);
 
-  Serial.println();
-  Serial.println("ESP32 Movement Detector started.");
-
-  // Does the panel acknowledge on the bus at all?
-  Wire.beginTransmission(OLED_ADDR);
-  Serial.printf("OLED I2C ACK at 0x%02X: %s\n", OLED_ADDR,
-                Wire.endTransmission() == 0 ? "YES" : "NO");
-
-  bool ok = display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
-  Serial.printf("display.begin() returned: %s\n", ok ? "true" : "false");
-
-  // DECISIVE TEST: light every pixel straight from the controller (0xA5).
-  // This ignores RAM and all drawing code. If the screen does NOT go fully
-  // white here, the OLED is not truly powered -> it's VCC/GND wiring.
-  display.ssd1306_command(SSD1306_SETCONTRAST);
-  display.ssd1306_command(0xFF);
-  display.ssd1306_command(SSD1306_DISPLAYALLON);  // 0xA5 - hardware all-on
-  Serial.println(">>> Screen must be FULLY WHITE for 4s. If black => OLED VCC/GND wiring.");
-  delay(4000);
-  display.ssd1306_command(SSD1306_DISPLAYALLON_RESUME);  // 0xA4 - back to RAM
+  // Init the OLED; fall back to the alternate address if the module uses 0x3D.
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR) &&
+      !display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) {
+    Serial.println("SSD1306 not found - check wiring/address.");
+  }
 
   showState(false);  // start in the OFF state
-  Serial.println("Ready. Warming up PIR sensor (~30 s recommended)...");
+  Serial.println("ESP32 Movement Detector ready.");
 }
 
 void loop() {
@@ -107,13 +92,6 @@ void loop() {
     digitalWrite(BUZZER_PIN, LOW);
     showState(false);
     Serial.println("No motion -> OFF");
-  }
-
-  // Heartbeat once per second (confirms the board is alive, not rebooting).
-  static unsigned long lastBeat = 0;
-  if (millis() - lastBeat >= 1000) {
-    lastBeat = millis();
-    Serial.printf("alive  motion=%d  ledOn=%d\n", motion, ledOn);
   }
 
   delay(50);
