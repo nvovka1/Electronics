@@ -1,7 +1,8 @@
 # ESP32 Movement Detector
 
 A PIR motion sensor turns an LED **ON** when movement is detected and **OFF**
-after ~2 s of no movement.
+after ~2 s of no movement. Each time motion starts, the buzzer plays the
+opening phrase of the **Imperial March** once (~7 s).
 
 ## PlatformIO board
 
@@ -20,9 +21,27 @@ almost every generic 30/38-pin ESP32 dev kit.
 - PIR motion sensor — HC-SR501 (the typical "dev kit" movement detector)
 - 1x LED
 - 1x 220–330 Ω resistor (current limiting for the LED)
-- Active buzzer (optional)
-- 0.96" I²C OLED display — SSD1306, 128×64
+- 1x **passive** buzzer / piezo element (see below)
+- SSD1306 128x64 I²C OLED
 - Breadboard + jumper wires
+
+### Passive vs. active buzzer
+
+The melody needs a **passive** buzzer, because the ESP32 has to generate the
+pitch itself. An **active** buzzer has its own oscillator inside — feed it the
+same signal and you get one fixed beep, not a tune.
+
+How to tell them apart:
+
+| | Passive (needed) | Active (won't work) |
+|---|---|---|
+| Sound from a 3.3 V DC coin-cell touch | faint click only | continuous loud tone |
+| Underside of a bare disc | open PCB / visible coil | sealed with black epoxy |
+| Module label | "passive", sometimes taller body | "active" |
+| Resistance across the pins | ~8–16 Ω | hundreds of Ω or more |
+
+If you only have an active buzzer, the code still runs — you'll just hear the
+march's rhythm as identical beeps.
 
 ## Wiring
 
@@ -50,31 +69,25 @@ So the chain is: `GPIO 4 → resistor → LED(+) → LED(-) → GND`.
                         LED
 ```
 
-### OLED display (SSD1306, I²C) — 4 pins
+### Buzzer (passive / piezo)
 
-| OLED pin | Connect to ESP32 |
-|----------|------------------|
-| VCC      | **3.3V** ⚠️ (see note) |
-| GND      | **GND**          |
-| SDA      | **GPIO 21**      |
-| SCL      | **GPIO 22**      |
+| Buzzer pin | Connect to |
+|------------|------------|
+| `+` / signal | **GPIO 5** |
+| `-` / GND    | **GND**    |
 
-> ⚠️ **Power the OLED from 3.3V, not VIN/5V.** The ESP32 drives SDA/SCL at
-> 3.3 V. If the panel is powered at 5 V its I²C logic-HIGH threshold rises to
-> ~4 V, so the ESP32's 3.3 V signals may never be recognized and **the screen
-> stays black** even though it looks powered. This is the #1 cause of a dead
-> SSD1306 on an ESP32.
+Driven by the ESP32's LEDC hardware PWM, so **never** `digitalWrite()` GPIO 5 —
+the two would fight over the pin. A piezo draws little enough current to sit
+directly on the GPIO; a louder magnetic buzzer wants a transistor driver.
 
 ### Pin summary
 
 - **GPIO 13** → PIR OUT (input)
 - **GPIO 4**  → LED (output)
-- **GPIO 5**  → active buzzer (+)
-- **GPIO 21** → OLED SDA
-- **GPIO 22** → OLED SCL
+- **GPIO 5**  → passive buzzer (PWM output)
+- **GPIO 21 / 22** → OLED SDA / SCL
 - **5V/VIN**  → PIR VCC
-- **3.3V**    → OLED VCC
-- **GND**     → PIR GND, LED cathode, buzzer (–), OLED GND (share ground)
+- **GND**     → PIR GND, LED cathode, buzzer `-` (share ground)
 
 > Want to use the on-board LED instead of an external one? Change `LED_PIN` in
 > `src/main.cpp` to `2` (GPIO2 drives the blue on-board LED on most dev kits) and
@@ -88,95 +101,20 @@ pio run --target upload # flash to the board
 pio device monitor      # open serial monitor @ 115200 baud
 ```
 
-## Serial monitor
+## The melody
 
-The firmware talks over USB serial at **115200 baud** (`Serial.begin(115200)`).
-Once connected you should see `ESP32 Movement Detector ready.` at boot, then
-`Motion detected -> ON` / `No motion -> OFF` as the sensor triggers.
+[`src/melody.cpp`](src/melody.cpp) holds a `{frequencyHz, durationMs}` table and
+a small `millis()`-based sequencer stepped from `loop()` — nothing blocks, so the
+PIR and the OLED keep working while the march plays. To change the tune, edit
+the `MELODY[]` table; `0` Hz means a rest.
 
-Open it with either:
+Behaviour details:
 
-```
-pio device monitor            # uses the settings in platformio.ini
-pio run -t upload -t monitor  # flash, then immediately open the monitor
-```
-
-The monitor settings live in `platformio.ini` so a bare `pio device monitor`
-"just works":
-
-| Setting            | Value                                    | Why |
-|--------------------|------------------------------------------|-----|
-| `monitor_port`     | `COM4`                                    | Pins the monitor to the board's port (same as `upload_port`). |
-| `monitor_speed`    | `115200`                                  | Must match `Serial.begin(115200)`. The CLI default is **9600**, which shows garbage. |
-| `monitor_filters`  | `esp32_exception_decoder, default, time` | Decodes crash backtraces to `file:line`; `time` timestamps each line. |
-
-### If the monitor shows nothing / garbage / keeps disconnecting
-
-Work through these in order — the first two fix the vast majority of cases:
-
-1. **Wrong baud.** A blank line then random symbols = baud mismatch. Running
-   `pio device monitor` *without* config defaults to 9600. Always keep
-   `monitor_speed = 115200` in `platformio.ini`, or pass `-b 115200`.
-2. **A burst of garbage at boot is normal.** The ESP32 ROM bootloader logs at a
-   scaled baud on 26 MHz-crystal boards, so you see junk once per reset, then
-   clean text. If the monitor *stays* blank or resets in a loop, and you don't
-   want the monitor toggling the board on connect, add `monitor_rts = 0` and
-   `monitor_dtr = 0` to `platformio.ini`.
-3. **No / wrong COM port.** Run `pio device list`.
-   - If **nothing** is listed, the board isn't plugged in (or the USB-serial
-     chip has no driver). This board uses a **CH340**
-     ([driver](https://www.wch-ic.com/downloads/CH341SER_EXE.html)); other kits
-     use a [CP210x](https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers).
-   - If **several** ports are listed, pick the right chip. This ESP32 shows up
-     as **`USB-SERIAL CH340`** (`VID_1A86`, port **COM3** on this PC). Do **not**
-     use an unrelated **FTDI** `USB Serial Port` (`VID_0403`, COM4 here) — that
-     is a different device and reads black. Set `upload_port`/`monitor_port`
-     accordingly.
-   - Port numbers can change between reboots/USB slots — re-check with
-     `pio device list` if the monitor suddenly goes black.
-4. **Port already open.** Only one program can hold the port. Close any other
-   serial monitor (Arduino IDE, a second PlatformIO monitor, PuTTY) first —
-   symptom is "could not open port ... Access is denied".
-5. **A bad USB cable.** Charge-only cables enumerate no port at all. Use a
-   known data cable.
-
-To quit the monitor press **Ctrl+C**.
-
-## OLED display not working (screen stays black)
-
-If the screen stays black, `setup()` prints `SSD1306 not found - check
-wiring/address.` on the serial monitor. Work through these — in order of how
-often they're the culprit:
-
-1. **Brownout / reset loop.** If the serial log shows `Brownout detector was
-   triggered` or the board keeps rebooting, it's a power problem — use a good
-   **data** USB cable in a **direct** port (no hub), or feed a solid 5 V into
-   VIN. The board can't drive the display while it's resetting.
-2. **VCC on VIN/5V instead of 3.3V** — move it (see the ⚠️ note above).
-3. **SDA/SCL swapped** — SDA→GPIO 21, SCL→GPIO 22.
-4. **Loose jumper / bad GND** — reseat all four wires.
-5. **Wrong address** — the code tries `0x3C` then `0x3D` automatically; if your
-   module is something else, set `OLED_ADDR` in
-   [`src/main.cpp`](src/main.cpp).
-6. **Not actually an SSD1306** — a look-alike **SH1106** shows black/garbage
-   with this driver and needs a different one (see below).
-7. **Dead module** — try a known-good one.
-
-### Trying a different display library
-
-`Adafruit_SSD1306` (used here) needs a correct address and an SSD1306
-controller. If you have an SH1106 or want a more forgiving driver,
-**[U8g2](https://github.com/olikraus/u8g2)** supports many controllers and both
-I²C/SPI. Add it in `platformio.ini`:
-
-```
-lib_deps =
-    olikraus/U8g2 @ ^2.35.30
-```
-
-But a different library **won't help a wiring/power fault** — fix a black bus
-(brownout, VCC, SDA/SCL) first, then a library only matters if the controller
-itself is different.
+- One full play-through per OFF→ON transition. Continuous motion does **not**
+  restart it.
+- Once started, the march plays to the end. Because the motion hold is only 2 s,
+  the buzzer can still be playing after the display reads `OFF`. Call
+  `melodyStop()` in the OFF branch of `loop()` if you'd rather cut it short.
 
 ## Notes
 
