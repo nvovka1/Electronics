@@ -45,10 +45,22 @@ constexpr long LORA_FREQ = 868E6;   // must match both boards + your hardware
 #ifndef OLED_SCL
   #define OLED_SCL 22
 #endif
-#ifndef OLED_RST
-  #define OLED_RST 16
-#endif
-Adafruit_SSD1306 display(128, 64, &Wire, OLED_RST);
+
+// Do NOT drive GPIO 16 as the OLED reset on this board.
+//
+// The ttgo-lora32-v21new variant defines OLED_RST as 16, which is correct only for
+// the WROOM-based T3 v1.6. This board is an ESP32-PICO-D4: the SPI flash die sits
+// inside the package and its chip-select is GPIO 16 (the ROM confirms it in the
+// configsip pad map -- CLK 6, Q 17, D 8, CS0 16, HD 11). display.begin() pulses the
+// reset pin low for 10 ms, which fights the flash controller for CS, stalls the
+// instruction cache, and trips the TG1 interrupt watchdog. That reset leaves the
+// flash die mid-transaction, so every later boot hangs in the second-stage
+// bootloader -- an endless rst:0x8 (TG1WDT_SYS_RESET) loop that only a full power
+// cycle clears.
+//
+// The OLED on this revision has no reset line, so -1 means "no reset pin".
+constexpr int8_t OLED_RESET_PIN = -1;
+Adafruit_SSD1306 display(128, 64, &Wire, OLED_RESET_PIN);
 
 // --- I/O pins ---
 constexpr uint8_t LED_PIN    = 25;  // on-board LED (sidetone)
