@@ -1,0 +1,23 @@
+# УВАГА: шаблон. Адреси PC/Backtrace взято з реального .elf цієї збірки
+# (esp32dev, firmware.elf) і вони декодуються коректно, але сам дамп НЕ знято
+# з плати - на момент створення жодну плату не було підключено.
+# Після реального падіння замініть цей файл текстом із Serial Monitor.
+
+Причина попереднього старту: ESP_RST_POWERON (подано живлення)
+Обрано варіант 1
+>>> Ділимо 100 на 0...
+Guru Meditation Error: Core  1 panic'ed (IntegerDivideByZero). Exception was unhandled.
+
+Core  1 register dump:
+PC      : 0x400d15f3  PS      : 0x00060630  A0      : 0x800d17bf  A1      : 0x3ffb2260
+A2      : 0x3ffc0a48  A3      : 0x3ffc0a48  A4      : 0x00000000  A5      : 0x00000064
+A6      : 0x00000000  A7      : 0x00000000  A8      : 0x00000064  A9      : 0x00000000
+A10     : 0x3ffc0a48  A11     : 0x3f400710  A12     : 0x0000000a  A13     : 0x00000031
+A14     : 0x00000000  A15     : 0x00000000  SAR     : 0x00000000  EXCCAUSE: 0x00000006
+EXCVADDR: 0x00000000  LBEG    : 0x400865b9  LEND    : 0x400865c9  LCOUNT  : 0xffffffff
+
+Backtrace: 0x400d15f3:0x3ffb2260 0x400d17bc:0x3ffb2280 0x400d39d6:0x3ffb22a0
+
+ELF file SHA256: 0000000000000000
+
+Rebooting...

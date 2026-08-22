@@ -2,7 +2,10 @@
     // See http://go.microsoft.com/fwlink/?LinkId=827846
     // for the documentation about the extensions.json format
     "recommendations": [
-        "platformio.platformio-ide"
+        "platformio.platformio-ide",
+        // Розшифровує Guru Meditation / Backtrace у "файл:рядок:функція".
+        // Команда: ESP Exception Decoder: Show Decoder Terminal
+        "dankeboy36.esp-exception-decoder"
     ],
     "unwantedRecommendations": [
         "ms-vscode.cpptools-extension-pack"
