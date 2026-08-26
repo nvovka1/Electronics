@@ -37,12 +37,16 @@ void loop() {
   KeyEvent event;
   if (!buttonWaitForPress(event, portMAX_DELAY)) return;
 
-  const bool isDouble = (event.press == KeyPress::Double);
-  const char symbol   = isDouble ? '-' : '.';
-  Serial.printf("[loop] %s press @%lu ms -> '%c'\n",
-                isDouble ? "double" : "single",
-                (unsigned long)event.atMs, symbol);
+  const uint32_t gotAtMs = millis();
+  const bool     isDouble = (event.press == KeyPress::Double);
+  const char     symbol   = isDouble ? '-' : '.';
 
-  if (!radioSendSymbol(symbol, pdMS_TO_TICKS(50)))
-    Serial.println("radioQueue full - symbol dropped");
+  // Hand it on first, log second - Serial is slow enough to distort the trace.
+  const bool queued = radioSendSymbol(symbol, event.stamp, pdMS_TO_TICKS(50));
+
+  Serial.printf("[loop]   %-6s -> '%c'  key->loop %lu ms  press->loop %lu ms%s\n",
+                isDouble ? "double" : "single", symbol,
+                (unsigned long)(gotAtMs - event.stamp.keyedAtMs),
+                (unsigned long)(gotAtMs - event.stamp.pressedAtMs),
+                queued ? "" : "  [radioQueue FULL - dropped]");
 }

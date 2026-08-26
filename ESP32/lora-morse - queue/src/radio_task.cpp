@@ -16,14 +16,24 @@ constexpr UBaseType_t RADIO_QUEUE_LENGTH = 8;
 static QueueHandle_t radioQueue      = nullptr;
 static TaskHandle_t  radioTaskHandle = nullptr;
 
-static void transmitSymbol(char symbol) {
+static void transmitSymbol(char symbol, const EventStamp& stamp) {
+  const uint32_t startedAtMs = millis();
+
   LoRa.beginPacket();
   LoRa.write((uint8_t)symbol);
-  LoRa.endPacket();
+  LoRa.endPacket();                  // blocks until the packet is on the air
   LoRa.receive();                    // straight back to listening
 
-  Serial.printf("[radio] TX symbol: '%c'\n", symbol);
-  uiPostSymbolSent(symbol);
+  const uint32_t sentAtMs = millis();
+  uiPostSymbolSent(symbol, stamp);   // hand the screen over before logging
+
+  Serial.printf("[radio]  TX '%c'  key->tx %lu ms  air %lu ms  key->sent %lu ms"
+                "  press->sent %lu ms\n",
+                symbol,
+                (unsigned long)(startedAtMs - stamp.keyedAtMs),
+                (unsigned long)(sentAtMs - startedAtMs),
+                (unsigned long)(sentAtMs - stamp.keyedAtMs),
+                (unsigned long)(sentAtMs - stamp.pressedAtMs));
   toneBeepSymbol(symbol);
 }
 
@@ -31,9 +41,13 @@ static void receivePending() {
   if (LoRa.parsePacket() <= 0) return;
 
   while (LoRa.available()) {
-    const char symbol = (char)LoRa.read();
-    Serial.printf("[radio] RX symbol: '%c'  (RSSI %d)\n", symbol, LoRa.packetRssi());
-    uiPostSymbolReceived(symbol);
+    const char     symbol   = (char)LoRa.read();
+    const uint32_t readAtMs = millis();
+    // No local key press behind this one: the radio read is the origin.
+    uiPostSymbolReceived(symbol, readAtMs);
+
+    Serial.printf("[radio]  RX '%c'  read@%lu ms  RSSI %d\n",
+                  symbol, (unsigned long)readAtMs, LoRa.packetRssi());
     toneBeepSymbol(symbol);
   }
   LoRa.receive();
@@ -43,7 +57,7 @@ static void radioTask(void* /*arg*/) {
   for (;;) {
     RadioRequest request;
     if (xQueueReceive(radioQueue, &request, pdMS_TO_TICKS(RADIO_POLL_MS)) == pdTRUE)
-      transmitSymbol(request.symbol);
+      transmitSymbol(request.symbol, request.stamp);
 
     receivePending();
   }
@@ -66,8 +80,8 @@ bool radioTaskStart(UBaseType_t priority, BaseType_t core) {
                                  &radioTaskHandle, core) == pdPASS;
 }
 
-bool radioSendSymbol(char symbol, TickType_t timeout) {
+bool radioSendSymbol(char symbol, const EventStamp& stamp, TickType_t timeout) {
   if (!radioQueue) return false;
-  RadioRequest request{symbol};
+  const RadioRequest request{symbol, stamp};
   return xQueueSend(radioQueue, &request, timeout) == pdTRUE;
 }

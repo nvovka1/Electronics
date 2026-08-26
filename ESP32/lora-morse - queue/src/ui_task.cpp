@@ -47,23 +47,34 @@ static void publish(const UiEvent& event) {
 }
 
 void uiPostBanner(const char* text) {
-  UiEvent event{UiEventKind::Banner, 0, ""};
+  UiEvent event{UiEventKind::Banner, 0, "", EventStamp{0, 0}};
   strlcpy(event.text, text, sizeof(event.text));
   publish(event);
 }
 
-void uiPostSymbolSent(char symbol) {
-  publish(UiEvent{UiEventKind::SymbolSent, symbol, ""});
+void uiPostSymbolSent(char symbol, const EventStamp& stamp) {
+  publish(UiEvent{UiEventKind::SymbolSent, symbol, "", stamp});
 }
 
-void uiPostSymbolReceived(char symbol) {
-  publish(UiEvent{UiEventKind::SymbolReceived, symbol, ""});
+void uiPostSymbolReceived(char symbol, uint32_t radioAtMs) {
+  publish(UiEvent{UiEventKind::SymbolReceived, symbol, "", EventStamp{0, radioAtMs}});
+}
+
+// The status line doubles as a latency readout: how long the symbol took from
+// the key (or, for a received one, from the radio) to reaching this task.
+static void setSymbolStatus(const char* verb, char symbol, uint32_t sinceMs) {
+  char line[22];
+  snprintf(line, sizeof(line), "%s %c +%lu ms", verb, symbol, (unsigned long)sinceMs);
+  status = line;
 }
 
 static void uiTask(void* /*arg*/) {
   for (;;) {
     UiEvent event;
     if (xQueueReceive(uiQueue, &event, portMAX_DELAY) != pdTRUE) continue;
+
+    const uint32_t gotAtMs  = millis();
+    const uint32_t sinceMs  = gotAtMs - event.stamp.keyedAtMs;
 
     switch (event.kind) {
       case UiEventKind::Banner:
@@ -72,7 +83,7 @@ static void uiTask(void* /*arg*/) {
 
       case UiEventKind::SymbolSent:
         appendTrimmed(txText, event.symbol);
-        status = (event.symbol == '-') ? "sent: dash -" : "sent: dot .";
+        setSymbolStatus("sent", event.symbol, sinceMs);
         break;
 
       case UiEventKind::SymbolReceived:
@@ -82,11 +93,25 @@ static void uiTask(void* /*arg*/) {
         }
         rxText += event.symbol;
         rxCount++;
-        status = (event.symbol == '-') ? "got: dash -" : "got: dot .";
+        setSymbolStatus("got", event.symbol, sinceMs);
         break;
     }
 
     drawScreen();
+
+    if (event.kind == UiEventKind::Banner) continue;
+
+    const uint32_t shownAtMs = millis();
+    const char*    origin    = (event.kind == UiEventKind::SymbolReceived) ? "radio" : "key";
+    Serial.printf("[ui]     %s '%c'  %s->ui %lu ms  draw %lu ms  %s->screen %lu ms",
+                  (event.kind == UiEventKind::SymbolReceived) ? "RX" : "TX",
+                  event.symbol, origin, (unsigned long)sinceMs,
+                  (unsigned long)(shownAtMs - gotAtMs),
+                  origin, (unsigned long)(shownAtMs - event.stamp.keyedAtMs));
+    if (event.stamp.pressedAtMs)
+      Serial.printf("  press->screen %lu ms",
+                    (unsigned long)(shownAtMs - event.stamp.pressedAtMs));
+    Serial.println();
   }
 }
 

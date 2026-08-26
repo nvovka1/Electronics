@@ -13,20 +13,25 @@ constexpr UBaseType_t KEY_QUEUE_LENGTH = 8;
 static QueueHandle_t keyEventQueue   = nullptr;
 static TaskHandle_t  buttonTaskHandle = nullptr;
 
-static void publishKeyEvent(KeyPress press) {
-  KeyEvent event{press, millis()};
-  // Never block on a full queue: dropping one press is far better than missing
-  // the timing of the next one.
-  if (xQueueSend(keyEventQueue, &event, 0) != pdTRUE)
-    Serial.println("keyEventQueue full - press dropped");
+static void publishKeyEvent(KeyPress press, uint32_t pressedAtMs) {
+  const KeyEvent event{press, EventStamp{pressedAtMs, millis()}};
+
+  const bool queued = (xQueueSend(keyEventQueue, &event, 0) == pdTRUE);
+
+  Serial.printf("[key]    %-6s  press@%lu ms  detect %lu ms%s\n",
+                press == KeyPress::Double ? "double" : "single",
+                (unsigned long)pressedAtMs,
+                (unsigned long)(event.stamp.keyedAtMs - pressedAtMs),
+                queued ? "" : "  [keyEventQueue FULL - dropped]");
 }
 
 static void buttonTask(void* /*arg*/) {
-  bool     pressed       = false;   // debounced key state
-  bool     ownsTone      = false;   // do we currently hold the LED + buzzer?
-  uint32_t lastEdgeMs    = 0;
-  uint32_t lastReleaseMs = 0;
-  uint8_t  clicks        = 0;       // completed presses in the current gesture
+  bool     pressed        = false;   // debounced key state
+  bool     ownsTone       = false;   // do we currently hold the LED + buzzer?
+  uint32_t lastEdgeMs     = 0;
+  uint32_t lastReleaseMs  = 0;
+  uint32_t gestureStartMs = 0;       // first press edge of the current gesture
+  uint8_t  clicks         = 0;       // completed presses in the current gesture
 
   for (;;) {
     const uint32_t nowMs   = millis();
@@ -38,6 +43,7 @@ static void buttonTask(void* /*arg*/) {
       lastEdgeMs = nowMs;
 
       if (pressed) {
+        if (clicks == 0) gestureStartMs = nowMs;   // start of a new gesture
         ownsTone = toneTryStart();      // live sidetone, unless a beep is playing
       } else {
         if (ownsTone) {
@@ -47,14 +53,14 @@ static void buttonTask(void* /*arg*/) {
         // A completed press. A second one inside the window = double press.
         lastReleaseMs = nowMs;
         if (++clicks >= 2) {
-          publishKeyEvent(KeyPress::Double);
+          publishKeyEvent(KeyPress::Double, gestureStartMs);
           clicks = 0;
         }
       }
     }
 
     if (clicks == 1 && !pressed && (nowMs - lastReleaseMs) >= DOUBLE_GAP_MS) {
-      publishKeyEvent(KeyPress::Single);
+      publishKeyEvent(KeyPress::Single, gestureStartMs);
       clicks = 0;
     }
 

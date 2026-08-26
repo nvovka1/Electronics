@@ -89,6 +89,33 @@ One module per task, each owning its queue, its hardware and its own tunables:
   shared hardware is the LED + buzzer, guarded by `toneMutex` taken with a
   0 timeout — feedback is skipped rather than blocking.
 
+## Latency trace (serial @ 115200)
+Every event carries an `EventStamp` (`pressedAtMs`, `keyedAtMs`) along the whole
+chain, so each stage prints how long the hop before it took:
+
+```
+[key]    single  press@31240 ms  detect 352 ms
+[loop]   single -> '.'  key->loop 1 ms  press->loop 353 ms
+[radio]  TX '.'  key->tx 2 ms  air 62 ms  key->sent 64 ms  press->sent 416 ms
+[ui]     TX '.'  key->ui 3 ms  draw 28 ms  key->screen 31 ms  press->screen 383 ms
+```
+
+- **`press@`** is the physical key edge, **`detect`** the classification delay —
+  for a single tap that is always ≈`DOUBLE_GAP_MS`, since the task must wait out
+  the window to know no second tap is coming. Everything after it is measured
+  from `keyedAtMs` (the event) *and* from the press, so the pipeline cost stays
+  visible separately from the unavoidable detection wait.
+- **`air`** is `LoRa.endPacket()` blocking until the packet is out (~60 ms for
+  one byte at SF7/BW125) — the largest real cost in the chain.
+- The UI and radio lines run **concurrently**: the radio posts to `uiQueue`
+  before it logs, so `key->screen` is normally *smaller* than `key->sent`.
+- For a **received** symbol there is no local press, so the radio read is the
+  origin and the trace reads `radio->ui` / `radio->screen`.
+- Every stage **enqueues first and logs second** — a Serial line at 115200 costs
+  several ms and would otherwise show up as latency downstream.
+- The OLED status line doubles as a readout: `sent . +3 ms` / `got - +2 ms`
+  (time from the origin to the UI task picking the event up).
+
 ## Power / battery — built in ✅
 The LILYGO LoRa32 has an **on-board Li-ion charger + regulator**:
 - Drop a charged **18650** into the holder (watch **+/–** polarity!), **or** plug a
