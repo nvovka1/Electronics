@@ -2,17 +2,22 @@
 
 #include "blink_command.h"
 #include "board_pins.h"
+#include "mutex_lab.h"
 
+// --- The interval cycle, in milliseconds ---
 static constexpr uint32_t BLINK_INTERVALS_MS[] = {250, 500, 1000, 2000};
 static constexpr uint8_t  INTERVAL_COUNT = sizeof(BLINK_INTERVALS_MS) / sizeof(BLINK_INTERVALS_MS[0]);
 
-constexpr uint32_t BUTTON_POLL_MS = 5;    // how often the task samples the pin
-constexpr uint32_t DEBOUNCE_MS    = 25;   // ignore edges closer together than this
-constexpr uint32_t DOUBLE_GAP_MS  = 300;  // second press within this window = double
+// --- Button timing (tune to your hand) ---
+constexpr uint32_t BUTTON_POLL_MS  = 5;    // how often the task samples the pin
+constexpr uint32_t DEBOUNCE_MS     = 25;   // ignore edges closer together than this
+constexpr uint32_t GESTURE_GAP_MS  = 300;  // button up this long = the gesture is over
 
 static QueueHandle_t blinkCommandQueue = nullptr;
 static TaskHandle_t  buttonTaskHandle  = nullptr;
 
+// Lives only inside this task: the LED task never sees it, it only ever sees
+// the commands that come out of the queue.
 static uint8_t currentStep = 0;
 
 static void sendCurrentInterval(const char* reason) {
@@ -36,6 +41,18 @@ static void stepBack() {
   sendCurrentInterval("double");
 }
 
+// A finished gesture: as many clicks as the user managed inside the window.
+static void handleGesture(uint8_t clicks) {
+  switch (clicks) {
+    case 1:  stepForward(); break;
+    case 2:  stepBack();    break;
+    default:
+      Serial.printf("[button core %d] triple -> arming the mutex lab\n", xPortGetCoreID());
+      mutexLabStart();
+      break;
+  }
+}
+
 static void buttonTask(void* /*arg*/) {
   bool     pressed       = false;   // debounced button state
   uint32_t lastEdgeMs    = 0;
@@ -53,19 +70,17 @@ static void buttonTask(void* /*arg*/) {
       pressed    = rawDown;
       lastEdgeMs = nowMs;
 
+      // Count on release, so holding the button down is still one click.
       if (!pressed) {
-        // A completed press. A second one inside the window = double press.
         lastReleaseMs = nowMs;
-        if (++clicks >= 2) {
-          stepBack();
-          clicks = 0;
-        }
+        if (clicks < 250) ++clicks;
       }
     }
 
-    // One press and the window has expired: it was a single press after all.
-    if (clicks == 1 && !pressed && (nowMs - lastReleaseMs) >= DOUBLE_GAP_MS) {
-      stepForward();
+    // The gesture ends once the button has stayed up for the whole window;
+    // only then do we know whether it was single, double or triple.
+    if (clicks > 0 && !pressed && (nowMs - lastReleaseMs) >= GESTURE_GAP_MS) {
+      handleGesture(clicks);
       clicks = 0;
     }
 
@@ -79,6 +94,6 @@ bool buttonTaskStart(QueueHandle_t commandQueue, UBaseType_t priority, BaseType_
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  return xTaskCreatePinnedToCore(buttonTask, "button", 2560, nullptr, priority,
+  return xTaskCreatePinnedToCore(buttonTask, "button", 3072, nullptr, priority,
                                  &buttonTaskHandle, core) == pdPASS;
 }
