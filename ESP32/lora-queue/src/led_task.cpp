@@ -13,9 +13,6 @@ static void ledTask(void* /*arg*/) {
   digitalWrite(LED_PIN, LOW);
 
   for (;;) {
-    // The wait for the next command *is* the blink delay: if a command arrives
-    // the new interval takes effect at once, otherwise the wait times out and
-    // that timeout is exactly one blink half-period.
     const TickType_t wait = (intervalMs == 0) ? portMAX_DELAY : pdMS_TO_TICKS(intervalMs);
 
     BlinkCommand command;

@@ -36,6 +36,5 @@ void setup() {
 }
 
 void loop() {
-  // Both tasks do the work; nothing left for the Arduino loop.
   vTaskDelay(pdMS_TO_TICKS(1000));
 }

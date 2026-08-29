@@ -3,11 +3,9 @@
 #include "blink_command.h"
 #include "board_pins.h"
 
-// --- The interval cycle, in milliseconds ---
 static constexpr uint32_t BLINK_INTERVALS_MS[] = {250, 500, 1000, 2000};
 static constexpr uint8_t  INTERVAL_COUNT = sizeof(BLINK_INTERVALS_MS) / sizeof(BLINK_INTERVALS_MS[0]);
 
-// --- Button timing (tune to your hand) ---
 constexpr uint32_t BUTTON_POLL_MS = 5;    // how often the task samples the pin
 constexpr uint32_t DEBOUNCE_MS    = 25;   // ignore edges closer together than this
 constexpr uint32_t DOUBLE_GAP_MS  = 300;  // second press within this window = double
@@ -15,8 +13,6 @@ constexpr uint32_t DOUBLE_GAP_MS  = 300;  // second press within this window = d
 static QueueHandle_t blinkCommandQueue = nullptr;
 static TaskHandle_t  buttonTaskHandle  = nullptr;
 
-// Lives only inside this task: the LED task never sees it, it only ever sees
-// the commands that come out of the queue.
 static uint8_t currentStep = 0;
 
 static void sendCurrentInterval(const char* reason) {
