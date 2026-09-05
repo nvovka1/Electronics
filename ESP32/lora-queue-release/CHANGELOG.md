@@ -3,7 +3,7 @@
 Three lines in plain language per release: what changed, what broke, what
 somebody upgrading has to do.
 
-## v1.0.0 — unreleased
+## v1.0.0 — 2026-09-05
 
 **What changed.** The demo became firmware that can be deployed. A `version`
 command that reports a build identity taken from git; a 256-record ring log with
