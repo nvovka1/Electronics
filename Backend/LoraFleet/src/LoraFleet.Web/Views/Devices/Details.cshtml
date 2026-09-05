@@ -1,0 +1,213 @@
+@model DeviceDetailViewModel
+@{
+    ViewData["Title"] = Model.Device.Serial;
+    var device = Model.Device;
+    var health = device.LastHealth;
+}
+
+<h1 class="mono">@device.Serial</h1>
+<p class="subtitle">
+    <span class="chip @Model.Status.ToString().ToLowerInvariant()">@Model.Status</span>
+    node @device.NodeId &middot; last seen @Model.SilenceDescription
+    @if (device.FirmwareIsDirty)
+    {
+        <span class="chip danger">dirty build &mdash; not reproducible</span>
+    }
+</p>
+
+<div class="columns">
+    <div class="card">
+        <h2>Identity</h2>
+        <dl class="kv">
+            <dt>Serial</dt><dd class="mono">@device.Serial</dd>
+            <dt>Node id</dt><dd class="mono">@device.NodeId</dd>
+            <dt>Hardware</dt><dd class="mono">@(string.IsNullOrEmpty(device.HardwareId) ? "unknown" : device.HardwareId)</dd>
+            <dt>Firmware</dt><dd class="mono">@device.FirmwareVersion+@device.FirmwareHash</dd>
+            <dt>Build type</dt><dd class="mono">@device.BuildType</dd>
+            <dt>Protocol</dt><dd class="mono">v@device.ProtocolVersion</dd>
+            <dt>Config version</dt><dd class="mono">v@device.ConfigVersion</dd>
+            <dt>Enrolled</dt><dd>@device.EnrolledAt.ToString("yyyy-MM-dd HH:mm") UTC</dd>
+            <dt>Last seen</dt><dd>@device.LastSeenAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</dd>
+        </dl>
+    </div>
+
+    <div class="card">
+        <h2>Last health report</h2>
+        @if (health is null)
+        {
+            <p class="dim">This device has never sent a health report.</p>
+        }
+        else
+        {
+            <dl class="kv">
+                <dt>Uptime</dt>
+                <dd class="mono">@TimeSpan.FromSeconds(health.UptimeSeconds).ToString(@"d\d\ hh\:mm\:ss")</dd>
+
+                <dt>Reboots</dt>
+                <dd class="mono">@health.Reboots &middot; last: @health.LastCrashReason</dd>
+
+                <dt>Battery</dt>
+                <dd class="mono">
+                    @if (health.BatteryVolts is double volts)
+                    {
+                        @volts.ToString("0.0")<text> V</text>
+                    }
+                    else
+                    {
+                        <span class="chip degraded">untrusted</span>
+                        <span class="hint">The node's ADC self-test failed, so it does not believe its own reading.</span>
+                    }
+                </dd>
+
+                <dt>Last RSSI</dt><dd class="mono">@health.LastRssi dBm</dd>
+                <dt>POST mask</dt>
+                <dd class="mono">
+                    0x@health.PostMask.ToString("X4")
+                    @if (health.PostPassed)
+                    {
+                        <span class="chip healthy">all blocks passed</span>
+                    }
+                </dd>
+                <dt>Reported</dt><dd>@health.ReceivedAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</dd>
+            </dl>
+
+            @if (!health.PostPassed)
+            {
+                <h2 style="margin-top:20px">Failing blocks</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Bit</th><th>Block</th><th>Reaction</th></tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var block in Model.FailingBlocks)
+                        {
+                            <tr>
+                                <td class="mono">@block.Bit</td>
+                                <td>
+                                    <span class="chip @(block.IsCritical ? "missing" : "degraded")">@block.Name</span>
+                                </td>
+                                <td class="dim">@block.Reaction</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<div class="columns">
+    <div class="card">
+        <h2>Target firmware</h2>
+        <p class="hint">
+            The version this node should be running. Comparing it with what the node reports
+            is what produces the out-of-date list. Flashing is still a cable job &mdash; this
+            firmware has no OTA client.
+        </p>
+
+        <form asp-action="SetTargetFirmware" asp-route-serial="@device.Serial" method="post">
+            <div class="field">
+                <label for="targetVersion">Assigned version</label>
+                <select id="targetVersion" name="targetVersion">
+                    <option value="">&mdash; no target &mdash;</option>
+                    @foreach (var release in Model.AssignableReleases)
+                    {
+                        <option value="@release.Version" selected="@(release.Version == device.TargetFirmwareVersion)">
+                            @release.DisplayName
+                        </option>
+                    }
+                </select>
+            </div>
+            @if (Model.AssignableReleases.Count == 0)
+            {
+                <p class="hint">
+                    No deployable release matches this board (@(string.IsNullOrEmpty(device.HardwareId) ? "unknown hardware" : device.HardwareId)).
+                    Upload a manifest and image on the Firmware page first.
+                </p>
+            }
+            <div class="actions">
+                <button type="submit">Save target</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Operator notes</h2>
+        <form asp-action="SetNotes" asp-route-serial="@device.Serial" method="post">
+            <div class="field">
+                <label for="notes">Where it is, which mast, who to call</label>
+                <textarea id="notes" name="notes" rows="4">@device.Notes</textarea>
+            </div>
+            <div class="actions">
+                <button type="submit">Save notes</button>
+            </div>
+        </form>
+
+        <div class="actions" style="border-top:1px solid var(--border); padding-top:14px; margin-top:18px">
+            <form asp-action="SetDecommissioned" asp-route-serial="@device.Serial" method="post">
+                <input type="hidden" name="isDecommissioned" value="@((!device.IsDecommissioned).ToString().ToLowerInvariant())" />
+                <button type="submit" class="secondary">
+                    @(device.IsDecommissioned ? "Return to service" : "Retire this node")
+                </button>
+            </form>
+
+            <form asp-action="Delete" asp-route-serial="@device.Serial" method="post"
+                  onsubmit="return confirm('Delete @device.Serial and all of its log records? It will re-enrol on its next check-in.');">
+                <button type="submit" class="danger">Delete</button>
+            </form>
+        </div>
+        <p class="hint">
+            Retiring stops a node being reported as missing. Deleting also removes its log
+            records, so a node that later re-enrols with the same serial does not inherit
+            a stranger's history.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>
+        Recent log
+        <a asp-controller="Logs" asp-action="Index" asp-route-serial="@device.Serial"
+           style="font-weight:400; font-size:13px; margin-left:8px">open in the log view</a>
+    </h2>
+
+    @if (Model.RecentLogs.Count == 0)
+    {
+        <div class="empty">
+            <p>No log records from this device.</p>
+            <p class="hint">Records arrive by POST to <code class="mono">/api/v1/devices/@device.Serial/log-records</code>.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Received</th>
+                        <th class="num">Device ms</th>
+                        <th>Level</th>
+                        <th>Tag</th>
+                        <th>Code</th>
+                        <th>Argument</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var record in Model.RecentLogs)
+                {
+                    <tr>
+                        <td class="nowrap dim mono">@record.ReceivedAt.ToString("MM-dd HH:mm:ss")</td>
+                        <td class="num mono">@record.TimestampMs</td>
+                        <td class="mono lvl-@record.LevelName">@record.LevelName</td>
+                        <td class="mono dim">@record.TagName</td>
+                        <td class="mono">@record.CodeName</td>
+                        <td class="mono dim">@record.ArgDescription</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

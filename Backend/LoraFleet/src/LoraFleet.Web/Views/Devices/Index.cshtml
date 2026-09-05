@@ -1,0 +1,135 @@
+@model DeviceListViewModel
+@using LoraFleet.Domain.Devices
+@{
+    ViewData["Title"] = "Devices";
+}
+
+<h1>Devices</h1>
+<p class="subtitle">Every node that has ever checked in. A device enrols itself on its first report.</p>
+
+<div class="tiles">
+    <div class="tile">
+        <div class="value">@Model.Total</div>
+        <div class="label">enrolled</div>
+    </div>
+    <div class="tile">
+        <div class="value">@Model.Healthy</div>
+        <div class="label">healthy</div>
+    </div>
+    <div class="tile @(Model.NeedingAttention > 0 ? "attention" : "")">
+        <div class="value">@Model.NeedingAttention</div>
+        <div class="label">need attention</div>
+    </div>
+    <div class="tile @(Model.OutOfDate > 0 ? "stale" : "")">
+        <div class="value">@Model.OutOfDate</div>
+        <div class="label">out of date</div>
+    </div>
+    <div class="tile @(Model.RunningDirtyBuilds > 0 ? "attention" : "")">
+        <div class="value">@Model.RunningDirtyBuilds</div>
+        <div class="label">dirty builds</div>
+    </div>
+</div>
+
+<div class="card">
+    @if (Model.Total == 0)
+    {
+        <div class="empty">
+            <p>No devices have checked in yet.</p>
+            <p class="hint">
+                A node enrols itself by posting to
+                <code class="mono">/api/v1/devices/{serial}/health-reports</code>.
+                See the README for the exact request.
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Serial</th>
+                        <th class="num">Node</th>
+                        <th>Firmware</th>
+                        <th>Target</th>
+                        <th>POST</th>
+                        <th class="num">Battery</th>
+                        <th class="num">RSSI</th>
+                        <th class="num">Reboots</th>
+                        <th>Last seen</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var row in Model.Devices)
+                {
+                    var health = row.Device.LastHealth;
+                    <tr>
+                        <td><span class="chip @row.Status.ToString().ToLowerInvariant()">@row.Status</span></td>
+                        <td>
+                            <a asp-action="Details" asp-route-serial="@row.Device.Serial" class="mono">@row.Device.Serial</a>
+                            @if (!string.IsNullOrWhiteSpace(row.Device.Notes))
+                            {
+                                <div class="dim" style="font-size:12px">@row.Device.Notes</div>
+                            }
+                        </td>
+                        <td class="num mono">@row.Device.NodeId</td>
+                        <td class="mono nowrap">
+                            @row.Device.FirmwareVersion<span class="dim">+@row.Device.FirmwareHash</span>
+                            @if (row.Device.FirmwareIsDirty)
+                            {
+                                <span class="chip danger">dirty</span>
+                            }
+                            <div class="dim" style="font-size:11.5px">@row.Device.BuildType</div>
+                        </td>
+                        <td class="mono nowrap">
+                            @if (row.Device.IsOutOfDate)
+                            {
+                                <span class="chip late">@row.Device.TargetFirmwareVersion</span>
+                            }
+                            else if (!string.IsNullOrWhiteSpace(row.Device.TargetFirmwareVersion))
+                            {
+                                <span class="dim">up to date</span>
+                            }
+                            else
+                            {
+                                <span class="dim">&mdash;</span>
+                            }
+                        </td>
+                        <td class="mono nowrap">
+                            @if (health is null)
+                            {
+                                <span class="dim">no report</span>
+                            }
+                            else if (health.PostPassed)
+                            {
+                                <span class="dim">0x0000</span>
+                            }
+                            else
+                            {
+                                <span class="chip @(PostBlock.HasCriticalFailure(health.PostMask) ? "missing" : "degraded")">
+                                    0x@health.PostMask.ToString("X4")
+                                </span>
+                                <div class="dim" style="font-size:11.5px">@row.PostSummary</div>
+                            }
+                        </td>
+                        <td class="num mono">
+                            @if (health?.BatteryVolts is double volts)
+                            {
+                                @volts.ToString("0.0")<text> V</text>
+                            }
+                            else
+                            {
+                                <span class="dim">?</span>
+                            }
+                        </td>
+                        <td class="num mono">@(health is null ? "—" : $"{health.LastRssi}")</td>
+                        <td class="num mono">@(health?.Reboots.ToString() ?? "—")</td>
+                        <td class="nowrap dim">@row.SilenceDescription</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

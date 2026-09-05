@@ -1,0 +1,55 @@
+# LoraFleet
+#
+#   cp .env.example .env      # then fill in the two secrets
+#   docker compose up --build
+#   open http://localhost:8080
+#
+# Nothing secret lives in this file. Both values below come from .env, which is
+# gitignored, so the compose file itself is safe to commit and to share.
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: src/LoraFleet.Web/Dockerfile
+    image: lorafleet-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    environment:
+      # Double underscore is how the .NET configuration binder reads a nested
+      # key out of an environment variable: MONGO__CONNECTIONSTRING becomes
+      # Mongo:ConnectionString.
+      MONGO__CONNECTIONSTRING: ${MONGO_CONNECTION_STRING:?set MONGO_CONNECTION_STRING in .env}
+      MONGO__DATABASENAME: ${MONGO_DATABASE:-lorafleet}
+      MONGO__LOGRETENTIONDAYS: ${LOG_RETENTION_DAYS:-30}
+
+      FLEET__DEVICEAPIKEY: ${DEVICE_API_KEY:?set DEVICE_API_KEY in .env}
+      FLEET__EXPECTEDREPORTPERIODSECONDS: ${EXPECTED_REPORT_PERIOD_SECONDS:-60}
+      # Behind a proxy or a tunnel the request's own host is this container's,
+      # which a device on the far side cannot reach. Set this to the URL the
+      # devices actually use.
+      FLEET__PUBLICBASEURL: ${PUBLIC_BASE_URL:-}
+
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 3s
+      start_period: 15s
+      retries: 3
+
+  # Optional local database, for working without touching the shared Atlas
+  # cluster. Start it with:  docker compose --profile local-db up
+  # and point MONGO_CONNECTION_STRING at mongodb://mongo:27017 in .env.
+  mongo:
+    image: mongo:7
+    profiles: ["local-db"]
+    restart: unless-stopped
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:

@@ -1,0 +1,22 @@
+@model ErrorViewModel
+@{
+    ViewData["Title"] = "Error";
+}
+
+<h1>Something went wrong</h1>
+<p class="subtitle">The request could not be completed.</p>
+
+<div class="card">
+    @if (Model.ShowRequestId)
+    {
+        <dl class="kv">
+            <dt>Request id</dt>
+            <dd class="mono">@Model.RequestId</dd>
+        </dl>
+        <p class="hint">Quote that id when reporting this &mdash; it is what ties the page to a line in the server log.</p>
+    }
+    else
+    {
+        <p class="dim">No request id was captured.</p>
+    }
+</div>

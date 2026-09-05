@@ -1,0 +1,11 @@
+# Keep the build context small and, more importantly, keep secrets and stale
+# build output from ever entering an image layer.
+.env
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/publish/
+.git/
+.gitignore
+*.md

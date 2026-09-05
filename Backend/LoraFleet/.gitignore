@@ -1,0 +1,16 @@
+# Secrets. The connection string carries a database password.
+.env
+*.user
+
+# Build output
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+publish/
+*.binlog
+
+# IDE
+.vs/
+.idea/
+*.suo

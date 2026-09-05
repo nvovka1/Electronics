@@ -1,0 +1,108 @@
+@model FirmwareListViewModel
+@{
+    ViewData["Title"] = "Firmware";
+}
+
+<h1>Firmware</h1>
+<p class="subtitle">
+    Releases available to assign. A <code class="mono">.bin</code> carries no usable identity
+    of its own under the Arduino framework, so upload the
+    <code class="mono">manifest.json</code> the build wrote next to it.
+</p>
+
+<div class="card">
+    <h2>Upload a release</h2>
+    <form asp-action="Upload" method="post" enctype="multipart/form-data">
+        <div class="columns">
+            <div class="field">
+                <label for="manifest">manifest.json (required)</label>
+                <input type="file" id="manifest" name="manifest" accept=".json,application/json" required />
+                <p class="hint">Written to <code class="mono">.pio/build/&lt;env&gt;/manifest.json</code> by every firmware build.</p>
+            </div>
+            <div class="field">
+                <label for="image">firmware.bin (optional)</label>
+                <input type="file" id="image" name="image" accept=".bin,application/octet-stream" />
+                <p class="hint">Its SHA-256 is checked against the manifest before anything is stored. Without an image the release is a record only and cannot be assigned.</p>
+            </div>
+        </div>
+        <div class="field">
+            <label for="releaseNotes">Release notes</label>
+            <textarea id="releaseNotes" name="releaseNotes" rows="3"
+                      placeholder="What changed, what broke, what somebody upgrading has to do."></textarea>
+        </div>
+        <div class="actions">
+            <button type="submit">Upload</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <h2>@Model.Releases.Count releases</h2>
+
+    @if (Model.Releases.Count == 0)
+    {
+        <div class="empty">
+            <p>Nothing uploaded yet.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Version</th>
+                        <th>Build</th>
+                        <th>Hardware</th>
+                        <th class="num">Size</th>
+                        <th>SHA-256</th>
+                        <th>Built</th>
+                        <th class="num">Assigned</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var release in Model.Releases)
+                {
+                    var assigned = Model.AssignedCount(release.Version);
+                    <tr>
+                        <td class="mono nowrap">
+                            @release.Version<span class="dim">+@release.GitHash</span>
+                            @if (release.IsDirty)
+                            {
+                                <span class="chip danger">dirty</span>
+                            }
+                            else if (!release.HasBinary)
+                            {
+                                <span class="chip neutral">no image</span>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(release.ReleaseNotes))
+                            {
+                                <div class="dim" style="font-size:12px; max-width:38ch">@release.ReleaseNotes</div>
+                            }
+                        </td>
+                        <td class="mono">@release.BuildType</td>
+                        <td class="mono dim">@release.HardwareId</td>
+                        <td class="num mono">@((release.SizeBytes / 1024).ToString("N0")) KB</td>
+                        <td class="mono dim" title="@release.Sha256">@(release.Sha256.Length >= 12 ? release.Sha256[..12] : release.Sha256)…</td>
+                        <td class="nowrap dim">@release.BuildUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td class="num mono">@(assigned == 0 ? "—" : assigned.ToString())</td>
+                        <td>
+                            <form asp-action="Delete" asp-route-id="@release.Id" method="post"
+                                  onsubmit="return confirm('Delete @release.Id and its image?');">
+                                <button type="submit" class="secondary">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <p class="hint">
+            A release built from uncommitted changes is stored for reference but can never be
+            assigned: there is no commit to reproduce it from. A release still assigned to a
+            device cannot be deleted until those assignments are cleared.
+        </p>
+    }
+</div>

@@ -1,0 +1,40 @@
+@{
+    var section = ViewContext.RouteData.Values["controller"]?.ToString() ?? "Devices";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] · LoraFleet</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" asp-controller="Devices" asp-action="Index">LoraFleet</a>
+        <nav>
+            <a asp-controller="Devices" asp-action="Index" class="@(section == "Devices" ? "active" : "")">Devices</a>
+            <a asp-controller="Logs" asp-action="Index" class="@(section == "Logs" ? "active" : "")">Logs</a>
+            <a asp-controller="Firmware" asp-action="Index" class="@(section == "Firmware" ? "active" : "")">Firmware</a>
+        </nav>
+    </header>
+
+    <main>
+        @if (TempData["Message"] is string message)
+        {
+            <div class="notice ok">@message</div>
+        }
+        @if (TempData["Error"] is string error)
+        {
+            <div class="notice bad">@error</div>
+        }
+
+        @RenderBody()
+    </main>
+
+    <footer>
+        <span>LoRa node fleet management</span>
+        <span>@DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm") UTC</span>
+    </footer>
+</body>
+</html>

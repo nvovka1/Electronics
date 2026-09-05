@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\LoraFleet.Domain\LoraFleet.Domain.csproj" />
+    <ProjectReference Include="..\LoraFleet.DataAccess\LoraFleet.DataAccess.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>52cad097-2506-4ef1-8ab5-6b3f2cd04480</UserSecretsId>
+  </PropertyGroup>
+
+</Project>
