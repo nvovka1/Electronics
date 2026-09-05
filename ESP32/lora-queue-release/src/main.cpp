@@ -1,52 +1,133 @@
 #include <Arduino.h>
-#include "board_pins.h"
-#include "button_task.h"
-#include "radio_task.h"
-#include "tone.h"
-#include "ui_task.h"
+#include <esp_task_wdt.h>
+
+#include "app/safe_mode.h"
+#include "app/shell.h"
+#include "core/calib.h"
+#include "core/config.h"
+#include "core/log.h"
+#include "core/post.h"
+#include "core/version.h"
+#include "hal/battery.h"
+#include "hal/board_pins.h"
+#include "tasks/button_task.h"
+#include "tasks/radio_task.h"
+#include "tasks/tone.h"
+#include "tasks/ui_task.h"
 
 // Cores: the button task shares the Arduino core with loop(); the radio and UI
 // tasks run on the other one, so drawing or a beep never delays key sampling.
-constexpr BaseType_t KEY_CORE   = 1;
-constexpr BaseType_t WORK_CORE  = 0;
+constexpr BaseType_t KEY_CORE = 1;
+constexpr BaseType_t WORK_CORE = 0;
 
-static void halt(const char* message) {
-  Serial.println(message);
-  uiShowFatal(message);
-  for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
-}
+// Long enough that a slow OLED redraw or a full ACK retry cycle never trips
+// it, short enough that a wedged task becomes a reboot rather than a node that
+// has quietly stopped answering.
+constexpr uint32_t WDT_TIMEOUT_S = 8;
 
+constexpr uint32_t SPLASH_MS = 2500;
+
+// The order here is the dependency order: the log exists before anything can
+// report, the config before anything is configured by it, and the POST before
+// anything acts on its result.
+//
+// Note what is missing compared to the demo this grew from: there is no halt()
+// any more. A node that stops tidily on a failed subsystem is a node somebody
+// has to drive to. A node that comes up degraded can still be asked what is
+// wrong with it.
 void setup() {
   Serial.begin(115200);
+  delay(50);  // let the USB-serial bridge come up before the first line
 
-  if (!toneBegin())  halt("Tone mutex failed");
-  if (!uiBegin())    Serial.println("OLED init failed.");
-  if (!radioBegin()) halt("LoRa FAIL - pins/antenna");
+  logBegin();
+  safeModeBegin();
 
-  if (!uiTaskStart(1, WORK_CORE))     halt("UI task failed");
-  if (!radioTaskStart(2, WORK_CORE))  halt("Radio task failed");
-  if (!buttonTaskStart(3, KEY_CORE))  halt("Button task failed");
+  if (fwIsDirty()) LOG_W(TAG_SYS, E_FW_DIRTY, 0);
 
-  uiPostBanner("1 tap=.  2 taps=-");
-  Serial.printf("Node %s ready. 1 tap = dot, 2 taps = dash.\n", NODE_NAME);
+  calibBegin();
+  batteryBegin();
+
+  // False means nothing valid was in NVS. The node still starts, on the
+  // firmware's defaults, and the POST carries the fact - so the operator knows
+  // the settings were lost rather than simply never changed.
+  const bool cfgOk = configBegin();
+  postObserveNvs(cfgOk);
+
+  const bool displayOk = uiBegin();
+  postObserveDisplay(displayOk);
+
+  // Three attempts, because an SPI or supply glitch at boot is transient far
+  // more often than a radio is actually dead.
+  const bool radioOk = radioBeginWithRetries(3);
+  postObserveRadio(radioOk);
+
+  const bool toneOk = toneBegin();
+
+  const uint16_t mask = postRun();
+
+  // The first thing the screen ever shows is what this node is and whether it
+  // passed. Drawn from setup() so it is on the glass before any task runs.
+  if (displayOk) {
+    uiDrawSplash();
+    delay(SPLASH_MS);
+  }
+
+  // Every task start is checked, and a failure is a logged bit rather than a
+  // halt: a node that can still answer `version` is worth far more than one
+  // that stopped cleanly.
+  if (!shellTaskStart(1, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 0);
+  if (displayOk && !uiTaskStart(1, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 1);
+  if (toneOk && !toneTaskStart(1, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 2);
+
+  // In safe mode the parts that can crash stay off. What remains is exactly
+  // what is needed to diagnose and cure the node from a distance: the shell,
+  // the radio and its telemetry.
+  if (safeModeActive()) {
+    uiPostBanner("SAFE MODE");
+  } else {
+    if (radioOk && !radioTaskStart(2, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 3);
+    if (!buttonTaskStart(3, KEY_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 4);
+  }
+
+  if (!radioOk)
+    uiPostBanner("RADIO FAIL");
+  else if (mask)
+    uiPostBanner("POST FAIL");
+  else
+    uiPostBanner("1 tap=.  2 taps=-");
+
+  esp_task_wdt_init(WDT_TIMEOUT_S, /*panic=*/true);
+  esp_task_wdt_add(nullptr);  // the Arduino loop task
+  LOG_I(TAG_SYS, E_WDT_SUBSCRIBED, WDT_TIMEOUT_S);
+
+  Serial.printf("\n%s %s  node %u  serial %s  post 0x%04X\n", fwVersionString(),
+                FW_BUILD_TYPE, config().node_id, calibSerial(), mask);
+  shellPrintBanner(Serial);
+  Serial.print("> ");
 }
 
 // The dispatcher: block on the button queue, translate the press type into a
 // Morse symbol, hand it to the radio task. Nothing else belongs here.
 void loop() {
   KeyEvent event;
-  if (!buttonWaitForPress(event, portMAX_DELAY)) return;
 
-  const uint32_t gotAtMs = millis();
-  const bool     isDouble = (event.press == KeyPress::Double);
-  const char     symbol   = isDouble ? '-' : '.';
+  // The one-second timeout is what feeds the watchdog and runs the
+  // housekeeping. Blocking forever would make a node with nobody pressing
+  // anything look wedged to the watchdog.
+  if (!buttonWaitForPress(event, pdMS_TO_TICKS(1000))) {
+    esp_task_wdt_reset();
+    safeModeTick();
+    return;
+  }
+  esp_task_wdt_reset();
 
-  // Hand it on first, log second - Serial is slow enough to distort the trace.
-  const bool queued = radioSendSymbol(symbol, event.stamp, pdMS_TO_TICKS(50));
+  // A long hold is not a Morse symbol: it is how the identity page is reached
+  // in the field, where there is no laptop to type `screen info` into.
+  if (event.press == KeyPress::Long) {
+    uiToggleInfoPage();
+    return;
+  }
 
-  Serial.printf("[loop]   %-6s -> '%c'  key->loop %lu ms  press->loop %lu ms%s\n",
-                isDouble ? "double" : "single", symbol,
-                (unsigned long)(gotAtMs - event.stamp.keyedAtMs),
-                (unsigned long)(gotAtMs - event.stamp.pressedAtMs),
-                queued ? "" : "  [radioQueue FULL - dropped]");
+  const char symbol = (event.press == KeyPress::Double) ? '-' : '.';
+  radioSendSymbol(symbol, event.stamp, pdMS_TO_TICKS(50));
 }

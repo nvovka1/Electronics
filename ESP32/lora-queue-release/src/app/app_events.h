@@ -11,7 +11,9 @@ struct EventStamp {
 };
 
 // --- Button Task -> main loop ---
-enum class KeyPress : uint8_t { Single, Double };
+// Long is not a Morse symbol: it is how the screen is switched to the identity
+// page in the field, where there is no laptop to type `screen info` into.
+enum class KeyPress : uint8_t { Single, Double, Long };
 
 struct KeyEvent {
   KeyPress   press;
@@ -19,13 +21,23 @@ struct KeyEvent {
 };
 
 // --- main loop -> Radio Task ---
+enum class RadioRequestKind : uint8_t { Symbol, Health };
+
 struct RadioRequest {
-  char       symbol;      // '.' or '-'
-  EventStamp stamp;
+  RadioRequestKind kind;
+  char             symbol;      // '.' or '-' for Symbol
+  EventStamp       stamp;
 };
 
 // --- any task -> UI Task ---
-enum class UiEventKind : uint8_t { Banner, SymbolSent, SymbolReceived };
+enum class UiEventKind : uint8_t {
+  Banner,
+  SymbolSent,
+  SymbolReceived,
+  ShowInfo,   // the identity page: serial, node, version, POST, battery
+  ShowMain,
+  Refresh,    // redraw with fresh POST/battery state, no new symbol
+};
 
 struct UiEvent {
   UiEventKind kind;

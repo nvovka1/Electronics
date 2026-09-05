@@ -30,3 +30,9 @@ constexpr int8_t OLED_RESET_PIN = -1;   // this revision has no OLED reset line
 constexpr uint8_t LED_PIN    = 25;  // on-board LED (sidetone)
 constexpr uint8_t BUZZER_PIN = 13;  // external active buzzer (- to GND)
 constexpr uint8_t KEY_PIN    = 0;   // Morse key button (pressed = LOW)
+
+// --- Battery sense ---
+// GPIO35 (ADC1_CH7) sits on a 100k/100k divider from VBAT on the LoRa32 v2.1.
+// ADC1 is used deliberately: ADC2 is unavailable whenever WiFi is active.
+constexpr uint8_t VBAT_PIN = 35;
+constexpr uint16_t VBAT_DIVIDER_Q10 = 2048;  // x2.000 in Q10, the nominal divider

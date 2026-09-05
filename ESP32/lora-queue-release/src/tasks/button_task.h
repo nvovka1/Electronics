@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
-#include "app_events.h"
+#include "app/app_events.h"
 
 bool buttonTaskStart(UBaseType_t priority, BaseType_t core);
 
