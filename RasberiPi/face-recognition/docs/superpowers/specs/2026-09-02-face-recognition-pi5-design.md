@@ -242,12 +242,21 @@ it recognize me" from guesswork into a reading.
 
 ## Controls
 
-| Key | Action |
+There is no keyboard attached to the Pi — it is reached only over SSH — so the
+window can never receive a keypress. Commands are therefore typed into the SSH
+terminal that launched the app: a single letter followed by Enter. The same
+letters also work through the window for anyone who does attach a keyboard.
+
+| Command | Action |
 |---|---|
-| `Q` or `Esc` | Quit |
-| `E` | Enroll a person (name is typed in the terminal) |
-| `F` | Toggle fullscreen |
-| `H` | Toggle the HUD |
+| `q` (or `Esc` at the window) | Quit |
+| `e` | Enroll a person; the name is typed at the following prompt |
+| `f` | Toggle fullscreen |
+| `h` | Toggle the HUD |
+
+Terminal input is read without blocking, so the video keeps running while
+nothing is being typed. Reading the name after `e` does block, and the picture
+freezes for those few seconds.
 
 ## GPIO
 

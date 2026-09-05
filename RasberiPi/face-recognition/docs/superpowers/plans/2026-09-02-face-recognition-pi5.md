@@ -1336,11 +1336,15 @@ The first task that touches the neural networks. The most likely failure in the 
 #!/usr/bin/env bash
 # Download the two ONNX models into models/, choosing the YuNet version that
 # the installed OpenCV can actually load.
+#
+# Note the host: opencv_zoo keeps its models in Git LFS, and
+# raw.githubusercontent.com serves a 130-byte text pointer for those instead of
+# the file. media.githubusercontent.com/media/... resolves LFS properly.
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p models
 
-BASE="https://raw.githubusercontent.com/opencv/opencv_zoo/main/models"
+BASE="https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models"
 
 OPENCV_VERSION="$(python3 -c 'import cv2; print(cv2.__version__)')"
 MAJOR="${OPENCV_VERSION%%.*}"
@@ -1360,17 +1364,37 @@ echo "OpenCV $OPENCV_VERSION -> $YUNET"
 fetch() {
   url="$1"
   name="$2"
-  if [ -s "models/$name" ]; then
+  min_bytes="$3"
+
+  if [ -s "models/$name" ] && [ "$(stat -c%s "models/$name")" -ge "$min_bytes" ]; then
     echo "already have $name"
     return
   fi
+
   echo "downloading $name"
-  curl -fL --retry 3 -o "models/$name.part" "$url"
+  curl -fsSL --retry 3 -o "models/$name.part" "$url"
+
+  # A Git LFS pointer is valid text and a successful HTTP 200, so nothing fails
+  # until OpenCV tries to parse it three steps later. Catch it here instead.
+  if head -c 40 "models/$name.part" | grep -q "git-lfs"; then
+    rm -f "models/$name.part"
+    echo "ERROR: got a Git LFS pointer instead of $name." >&2
+    echo "The URL must resolve LFS content (media.githubusercontent.com/media/...)." >&2
+    exit 1
+  fi
+
+  actual="$(stat -c%s "models/$name.part")"
+  if [ "$actual" -lt "$min_bytes" ]; then
+    rm -f "models/$name.part"
+    echo "ERROR: $name is only $actual bytes, expected at least $min_bytes." >&2
+    exit 1
+  fi
+
   mv "models/$name.part" "models/$name"
 }
 
-fetch "$BASE/face_detection_yunet/$YUNET" "$YUNET"
-fetch "$BASE/face_recognition_sface/$SFACE" "$SFACE"
+fetch "$BASE/face_detection_yunet/$YUNET" "$YUNET" 200000
+fetch "$BASE/face_recognition_sface/$SFACE" "$SFACE" 30000000
 
 # The code always opens models/yunet.onnx and models/sface.onnx, so the model
 # version is a deployment detail rather than something baked into the source.
@@ -2292,16 +2316,20 @@ Everything built so far, wired into one loop. This task has no unit tests — it
     ./run.sh -m src.main
     ./run.sh -m src.main --source file:tests/fixtures/face.jpg --headless
 
-Keys (the window must have focus, using a keyboard attached to the Pi):
-    Q / Esc   quit
-    E         enroll a person - the name is typed in the terminal
-    F         toggle fullscreen
-    H         toggle the HUD
+Commands are typed into this terminal, a single letter then Enter, because the
+Pi is reached over SSH and has no keyboard of its own. The same letters also
+work at the window for anyone who does attach one.
+
+    q   quit
+    e   enroll a person - the name is typed at the prompt that follows
+    f   toggle fullscreen
+    h   toggle the HUD
 """
 from __future__ import annotations
 
 import argparse
 import os
+import select
 import sys
 import time
 
@@ -2321,6 +2349,33 @@ WINDOW = "Face Recognition"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MESSAGE_SECONDS = 3.0
 MAX_EMPTY_READS = 30
+HELP = "Commands (type here, then Enter):  e = enroll   q = quit   h = hud   f = fullscreen"
+
+
+def read_terminal_command():
+    """One typed command from the terminal, or None if nothing was typed.
+
+    This is what makes the app usable over SSH: the window never receives a
+    keypress, because there is no keyboard attached to the Pi. select() with a
+    zero timeout keeps the video running while nothing is being typed."""
+    if not sys.stdin.isatty():
+        return None
+    ready, _, _ = select.select([sys.stdin], [], [], 0)
+    if not ready:
+        return None
+    line = sys.stdin.readline()
+    if not line:
+        return None
+    return line.strip().lower()[:1] or None
+
+
+def key_to_command(key: int):
+    """Translate an OpenCV keycode into the same command letters."""
+    if key in (27, ord("q")):
+        return "q"
+    if 32 <= key < 127:
+        return chr(key).lower()
+    return None
 
 
 def parse_args():
@@ -2388,6 +2443,8 @@ def main() -> int:
         cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
         cv2.setWindowProperty(WINDOW, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
+    print(HELP)
+
     session = None
     show_hud = True
     fullscreen = True
@@ -2448,6 +2505,8 @@ def main() -> int:
                     message_until = time.monotonic() + MESSAGE_SECONDS
                     session = None
 
+            command = read_terminal_command()
+
             if headless:
                 for track in tracks:
                     label = track.label or "Unknown"
@@ -2479,29 +2538,33 @@ def main() -> int:
 
                 cv2.imshow(WINDOW, frame)
 
-                key = cv2.waitKey(1) & 0xFF
-                if key in (ord("q"), 27):
-                    break
-                if key == ord("e") and session is None:
-                    # This blocks the video until a name is typed. That is a fair
-                    # trade for not having to write a text field in OpenCV.
-                    name = input("Name to enroll: ").strip()
-                    if name:
-                        session = EnrollmentSession(
-                            name,
-                            CONFIG.enroll_samples,
-                            CONFIG.enroll_min_det_score,
-                            CONFIG.enroll_min_face_px,
-                        )
-                if key == ord("h"):
-                    show_hud = not show_hud
-                if key == ord("f"):
-                    fullscreen = not fullscreen
-                    cv2.setWindowProperty(
-                        WINDOW,
-                        cv2.WND_PROP_FULLSCREEN,
-                        cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL,
+                # waitKey must be called every frame to pump the GUI, whether or
+                # not anybody is pressing anything. A key at the window wins over
+                # the terminal only because it is read second.
+                command = key_to_command(cv2.waitKey(1) & 0xFF) or command
+
+            if command == "q":
+                break
+            if command == "e" and session is None:
+                # This blocks the video until a name is typed. That is a fair
+                # trade for not having to write a text field in OpenCV.
+                name = input("Name to enroll: ").strip()
+                if name:
+                    session = EnrollmentSession(
+                        name,
+                        CONFIG.enroll_samples,
+                        CONFIG.enroll_min_det_score,
+                        CONFIG.enroll_min_face_px,
                     )
+            elif command == "h":
+                show_hud = not show_hud
+            elif command == "f" and not headless:
+                fullscreen = not fullscreen
+                cv2.setWindowProperty(
+                    WINDOW,
+                    cv2.WND_PROP_FULLSCREEN,
+                    cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL,
+                )
 
             now = time.monotonic()
             instant = 1.0 / max(now - last_time, 1e-6)
@@ -2559,15 +2622,17 @@ The point of this task is to prove the thing works as a whole, and to leave behi
 
 - [ ] **Step 1: Run the app on the HDMI monitor**
 
+This step and the next must be run by a person in their own terminal, not through an automated SSH call: typing commands needs a real terminal on standard input.
+
 ```bash
-ssh admin@192.168.0.111 "cd /home/admin/face-recognition && ./run.sh -m src.main"
+ssh -t admin@192.168.0.111 "cd /home/admin/face-recognition && ./run.sh -m src.main"
 ```
 
-Expected: fullscreen video on the monitor, a red box around your face labelled `Unknown`, and the HUD reading `No one enrolled - press E`.
+Expected: fullscreen video on the monitor, a red box around your face labelled `Unknown`, and the HUD reading `No one enrolled - press E`. The terminal prints the command line.
 
 - [ ] **Step 2: Enroll yourself**
 
-Press `E` on the keyboard attached to the Pi. The video freezes while the terminal waits. Type your name in the SSH session and press Enter. Sit still, facing the camera, about half a metre away.
+Type `e` and press Enter in that terminal. It asks `Name to enroll:` — the video freezes while it waits. Type your name, press Enter, then sit still facing the camera about half a metre away.
 
 Expected: a banner counting `1/5` … `5/5`, then `Enrolled "<name>" (5 samples)` both on screen and in the terminal. Your box turns green with your name and a score.
 
@@ -2582,7 +2647,7 @@ Work down this list; each one is a claim the spec makes.
 3. The LED is lit while you are in frame and goes out about half a second after you leave.
 4. The HUD shows at least 15 fps.
 5. The label stays steady rather than flickering between your name and Unknown.
-6. Pressing `H` hides the HUD; `F` leaves fullscreen; `Q` quits cleanly with no traceback.
+6. Typing `h` hides the HUD; `f` leaves fullscreen; `q` quits cleanly with no traceback.
 7. Restart the app: your enrollment survived, and the HUD shows `enrolled: 1`.
 
 If step 1 fails and your score sits just under the threshold, that is the tuning case the HUD was built for: lower `match_threshold` in `src/config.py` a little, or re-enroll under the lighting you actually use.
@@ -2637,14 +2702,18 @@ Other modes:
 ./run.sh tools/grab_still.py                                            # save a test fixture
 ```
 
-## Keys
+## Commands
 
-| Key | Action |
+The Pi has no keyboard of its own, so commands are typed into the SSH terminal
+that launched the app — one letter, then Enter. The same letters work at the
+window if you do attach a keyboard.
+
+| Command | Action |
 |---|---|
-| `Q` / `Esc` | Quit |
-| `E` | Enroll — the name is typed in the terminal (the video pauses meanwhile) |
-| `F` | Toggle fullscreen |
-| `H` | Toggle the HUD |
+| `q` | Quit |
+| `e` | Enroll — the name is typed at the prompt that follows (the video pauses meanwhile) |
+| `f` | Toggle fullscreen |
+| `h` | Toggle the HUD |
 
 ## Enrolling well
 
