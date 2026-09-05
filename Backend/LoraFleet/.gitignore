@@ -14,3 +14,16 @@ publish/
 .vs/
 .idea/
 *.suo
+
+# The repository root .gitignore has `[Ll]ogs/` - a stock Visual Studio rule
+# meant for log OUTPUT directories. It also matched two source folders here and
+# silently dropped them from every commit, so the project built on a developer's
+# machine and failed inside the container with "the namespace Logs does not
+# exist". Nothing warned, because git never reports what it declined to add.
+#
+# Renaming is not an option for the view folder: ASP.NET MVC resolves
+# LogsController's views from Views/Logs/ by convention. So the exclusion is
+# lifted, scoped to the source tree - real log output would never live under
+# src/.
+!src/**/Logs/
+!src/**/Logs/**

@@ -1,0 +1,109 @@
+@model LogsViewModel
+@{
+    ViewData["Title"] = "Logs";
+}
+
+<h1>Logs</h1>
+<p class="subtitle">
+    Nodes send codes, not sentences &mdash; twelve bytes a record instead of about sixty.
+    The text below is reconstructed from the dictionary that ships with the firmware.
+</p>
+
+<div class="card">
+    <form method="get" class="inline">
+        <div>
+            <label for="serial">Device</label>
+            <select id="serial" name="serial">
+                <option value="">All devices</option>
+                @foreach (var serial in Model.KnownSerials)
+                {
+                    <option value="@serial" selected="@(serial == Model.DeviceSerial)">@serial</option>
+                }
+            </select>
+        </div>
+
+        <div>
+            <label for="maxLevel">Severity</label>
+            <select id="maxLevel" name="maxLevel">
+                <option value="">Everything</option>
+                @foreach (var (value, label) in LogsViewModel.LevelFilters)
+                {
+                    <option value="@value" selected="@(Model.MaxLevel == value)">@label</option>
+                }
+            </select>
+        </div>
+
+        <div>
+            <label for="tag">Tag</label>
+            <select id="tag" name="tag">
+                <option value="">All tags</option>
+                @foreach (var (value, label) in LogsViewModel.TagFilters)
+                {
+                    <option value="@value" selected="@(Model.Tag == value)">@label</option>
+                }
+            </select>
+        </div>
+
+        <div>
+            <label for="limit">Rows</label>
+            <select id="limit" name="limit">
+                @foreach (var option in new[] { 100, 300, 1000, 2000 })
+                {
+                    <option value="@option" selected="@(Model.Limit == option)">@option</option>
+                }
+            </select>
+        </div>
+
+        <button type="submit">Apply</button>
+        <a href="@Url.Action("Index")"><button type="button" class="secondary">Reset</button></a>
+    </form>
+</div>
+
+<div class="card">
+    <h2>@Model.Records.Count records, newest first</h2>
+
+    @if (Model.Records.Count == 0)
+    {
+        <div class="empty">
+            <p>Nothing matches this filter.</p>
+        </div>
+    }
+    else
+    {
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Received</th>
+                        <th>Device</th>
+                        <th class="num">Device ms</th>
+                        <th>Level</th>
+                        <th>Tag</th>
+                        <th>Code</th>
+                        <th>Argument</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var record in Model.Records)
+                {
+                    <tr>
+                        <td class="nowrap dim mono">@record.ReceivedAt.ToString("MM-dd HH:mm:ss")</td>
+                        <td class="mono">
+                            <a asp-controller="Devices" asp-action="Details" asp-route-serial="@record.DeviceSerial">@record.DeviceSerial</a>
+                        </td>
+                        <td class="num mono">@record.TimestampMs</td>
+                        <td class="mono lvl-@record.LevelName">@record.LevelName</td>
+                        <td class="mono dim">@record.TagName</td>
+                        <td class="mono">@record.CodeName</td>
+                        <td class="mono dim">@record.ArgDescription</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <p class="hint">
+            "Device ms" is that node's own monotonic clock, in milliseconds since it booted.
+            It is not wall-clock time and is not comparable across a reboot &mdash; nodes have no RTC.
+        </p>
+    }
+</div>
