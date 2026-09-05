@@ -1,11 +1,22 @@
 # Keep the build context small and, more importantly, keep secrets and stale
-# build output from ever entering an image layer.
+# build output out of every image layer.
+#
+# This file must use LF line endings. With CRLF the trailing carriage return
+# becomes part of each pattern and none of them match - which silently means
+# .env gets copied into the image.
 .env
+.env.*
+!.env.example
+
 **/bin/
 **/obj/
+**/publish/
 **/.vs/
 **/.idea/
-**/publish/
+
+# The image builds the web project only; the tests are not part of it.
+tests/
+
 .git/
 .gitignore
 *.md

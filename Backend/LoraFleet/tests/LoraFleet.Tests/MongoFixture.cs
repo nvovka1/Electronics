@@ -20,10 +20,11 @@ public sealed class MongoFixture : IDisposable
 
     public MongoFixture()
     {
+        // A plain standalone node: nothing here needs transactions, and a
+        // single-node replica set costs several seconds of election on start.
         _runner = MongoRunner.Run(new MongoRunnerOptions
         {
             UseSingleNodeReplicaSet = false,
-            KillMongoProcessesWhenCurrentProcessExits = true,
         });
     }
 

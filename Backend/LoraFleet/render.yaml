@@ -1,0 +1,54 @@
+# Render blueprint.
+#
+# The two secrets are marked sync:false, so Render prompts for them once in the
+# dashboard and never stores them in this file. Nothing here is confidential.
+#
+# Root directory for the service must be set to Backend/LoraFleet, because the
+# Dockerfile's COPY paths are relative to the solution root.
+
+services:
+  - type: web
+    name: lorafleet
+    runtime: docker
+    plan: free
+    rootDir: Backend/LoraFleet
+    dockerfilePath: ./src/LoraFleet.Web/Dockerfile
+    dockerContext: .
+
+    # Render restarts the instance when this stops answering. It reports the
+    # process, not the database: an Atlas outage must not make Render kill the
+    # one thing still able to report the outage.
+    healthCheckPath: /healthz
+
+    envVars:
+      # Prompted once in the dashboard. The connection string carries a
+      # password and must never be committed.
+      - key: MONGO__CONNECTIONSTRING
+        sync: false
+
+      # Generate with: openssl rand -hex 32
+      - key: FLEET__DEVICEAPIKEY
+        sync: false
+
+      - key: MONGO__DATABASENAME
+        value: lorafleet
+
+      - key: MONGO__LOGRETENTIONDAYS
+        value: "30"
+
+      - key: FLEET__EXPECTEDREPORTPERIODSECONDS
+        value: "60"
+
+      # The URL devices actually reach. Without it the update manifest hands
+      # out download links built from the container's internal host, which
+      # nothing outside Render can resolve.
+      - key: FLEET__PUBLICBASEURL
+        value: https://electronics-fq9f.onrender.com
+
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+
+# Note on the free plan: the instance sleeps after roughly 15 minutes with no
+# traffic and takes tens of seconds to wake. A node posting a health report into
+# a sleeping instance will see its request time out. Either accept the gap, give
+# the devices a generous HTTP timeout and a retry, or move to a paid instance.
