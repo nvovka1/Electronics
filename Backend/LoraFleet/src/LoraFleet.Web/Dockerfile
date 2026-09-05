@@ -1,5 +1,12 @@
-# Build context is the solution root:
+# The build context MUST be the solution root (Backend/LoraFleet), not the
+# repository root and not the web project directory:
+#
+#   cd Backend/LoraFleet
 #   docker build -f src/LoraFleet.Web/Dockerfile -t lorafleet-web .
+#
+# On Render that means setting the service's Root Directory to
+# Backend/LoraFleet. With the wrong context every COPY below fails with
+# "/src": not found, and nothing in the message says why.
 #
 # The test project is deliberately absent from this file. The image needs
 # Domain, DataAccess and Web and nothing else, and referencing tests/ here made

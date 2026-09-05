@@ -74,9 +74,22 @@ docker compose --profile local-db up
 
 ### Render
 
-`render.yaml` is a blueprint. Set the service's **root directory** to
-`Backend/LoraFleet` — the Dockerfile's `COPY` paths are relative to the solution
-root, not to the web project.
+**Set the service's Root Directory to `Backend/LoraFleet`.** This is the setting
+that breaks the build if it is wrong, and the error does not say so. The
+Dockerfile's `COPY src/...` paths are relative to the solution root; with the
+root directory left empty the build context is the repository root, which
+contains `Arduino/ Backend/ ESP32/ PCB/ RasberiPi/` and no `src/` at all, so
+every COPY fails with `"/src": not found`.
+
+| Render setting | Value |
+|---|---|
+| Root Directory | `Backend/LoraFleet` |
+| Runtime | Docker |
+| Dockerfile Path | `src/LoraFleet.Web/Dockerfile` |
+| Docker Build Context Directory | `.` |
+| Health Check Path | `/healthz` |
+
+Using the `render.yaml` blueprint sets all of these for you.
 
 Two variables are marked `sync: false` and are prompted for once in the
 dashboard rather than committed:
