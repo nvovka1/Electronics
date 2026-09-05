@@ -99,6 +99,27 @@ deployed: there is no commit to reproduce it from.
 Dirtiness is scoped to this project directory, so edits elsewhere in the
 monorepo do not falsely mark the firmware dirty.
 
+### Where the version actually lives
+
+| Place | Holds | Read by |
+|---|---|---|
+| The image itself | `-D` flags baked in at compile time | `version`, the OLED, the health frame |
+| `.pio/build/<env>/manifest.json` | version, hash, build time, size, SHA-256, HW id | a flashing tool or gateway, before writing anything |
+| NVS namespace `calib` | serial number, battery calibration | the node itself; survives `config reset` |
+| NVS namespace `cfg` | settings and their `cfg_version` | the node itself |
+
+**Not** in eFuses. The firmware version belongs to the image and cannot drift
+from it. eFuse bits only ever go 0 → 1, so a version burnt there could never be
+corrected, would spend a fixed budget on every release, and would become a
+second source of truth able to disagree with the code that is running.
+
+A note on the app descriptor: ESP-IDF puts an `esp_app_desc_t` at offset `0x20`
+of every image, and normally it carries the project version. Under the Arduino
+framework it is compiled into a prebuilt library and describes the *framework
+builder* — it reads `arduino-lib-builder` / `esp-idf: v4.4.7`, built March 2024,
+whatever we compile. That is why the manifest exists. Patching those bytes after
+the image is generated would invalidate the image hash, so it is not done.
+
 ---
 
 ## Layout
@@ -115,7 +136,8 @@ src/
   tasks/            button, radio, UI, sidetone
 test/test_native/   37 host tests
 docs/               protocol spec, field checklist, experiments, log dictionary
-scripts/            version flags, host test runner, log dict generator, power-cut rig
+scripts/            version flags, release manifest, host test runner,
+                    log dict generator, power-cut rig
 ```
 
 Everything in `lib/` is deliberately free of `Arduino.h` so it links into a host
