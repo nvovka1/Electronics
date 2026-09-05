@@ -1,11 +1,10 @@
 #include "core/post.h"
 
-#include <SPI.h>
-#include <Wire.h>
-
 #include "core/log.h"
 #include "hal/battery.h"
 #include "hal/board_pins.h"
+#include "tasks/radio_task.h"
+#include "tasks/ui_task.h"
 
 // A pack outside this window is either flat or being charged hard; either way
 // the node should say so rather than pretend.
@@ -16,10 +15,6 @@ static constexpr uint16_t VBAT_PLAUSIBLE_MAX_MV = 4600;
 // sense circuit, not a flat pack. The two cases need different reactions, so
 // they are distinguished rather than lumped together as "power bad".
 static constexpr uint16_t VBAT_SENSE_FLOOR_MV = 500;
-
-static constexpr uint8_t SX1276_REG_VERSION = 0x42;
-static constexpr uint8_t SX1276_VERSION_ID = 0x12;
-static constexpr uint8_t SSD1306_I2C_ADDR = 0x3C;
 
 static uint16_t s_mask = 0;
 static bool s_nvsOk = true;
@@ -55,15 +50,18 @@ static bool chk_power(void) {
 static bool chk_nvs(void) { return s_nvsOk; }
 
 static bool chk_adc(void) {
-  // A dead ADC, or an input stuck against a rail, returns the same number
-  // every time. Real silicon always jitters by at least one LSB, so a
+  // A dead ADC, or an input stuck hard against a rail, returns the same number
+  // every time. Real silicon always jitters by at least a count or two, so a
   // perfectly constant reading is the signature of a fault rather than of a
   // very quiet signal.
-  uint16_t first = batteryRawPinMillivolts();
+  //
+  // Raw conversions, not the averaged millivolts: averaging eight samples and
+  // dividing is precisely what would hide the jitter being looked for.
+  const uint16_t first = batteryRawAdc();
   uint16_t lo = first, hi = first;
 
   for (uint8_t i = 0; i < 32; i++) {
-    const uint16_t v = batteryRawPinMillivolts();
+    const uint16_t v = batteryRawAdc();
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
@@ -74,26 +72,23 @@ static bool chk_adc(void) {
 }
 
 static bool chk_radio(void) {
-  // Read the chip's own version register over SPI. It proves the bus, the chip
-  // select and the supply all the way to the radio, which "LoRa.begin()
+  // Reads the chip's own version register, which proves the bus, the chip
+  // select and the supply all the way to the radio - something "LoRa.begin()
   // returned true" alone does not.
+  //
+  // The probe lives in the radio module because that module owns SPI. Driving
+  // the bus from here would work at boot and corrupt a transaction the first
+  // time an operator typed `self-test` on a running node.
   if (!s_radioOk) return false;
-
-  digitalWrite(LORA_CS, LOW);
-  SPI.transfer(SX1276_REG_VERSION & 0x7F); // MSB clear = read
-  const uint8_t version = SPI.transfer(0x00);
-  digitalWrite(LORA_CS, HIGH);
-
-  return version == SX1276_VERSION_ID;
+  return radioProbeChip();
 }
 
 static bool chk_display(void) {
-  if (!s_displayOk) return false;
-
   // An ACK at the panel's address. If the ribbon is loose this is the only
   // thing that notices, and the node is perfectly usable without a screen.
-  Wire.beginTransmission(SSD1306_I2C_ADDR);
-  return Wire.endTransmission() == 0;
+  // Probed through the UI module for the same reason as the radio above.
+  if (!s_displayOk) return false;
+  return uiProbePanel();
 }
 
 static bool chk_button(void) {
@@ -153,18 +148,6 @@ uint16_t postCriticalMask() {
   for (size_t i = 0; i < POST_ITEM_COUNT; i++)
     if (POST_ITEMS[i].critical) critical |= (uint16_t)(1u << POST_ITEMS[i].bit);
   return (uint16_t)(s_mask & critical);
-}
-
-const char *postBlockName(uint8_t bit) {
-  for (size_t i = 0; i < POST_ITEM_COUNT; i++)
-    if (POST_ITEMS[i].bit == bit) return POST_ITEMS[i].name;
-  return "?";
-}
-
-const char *postBlockReaction(uint8_t bit) {
-  for (size_t i = 0; i < POST_ITEM_COUNT; i++)
-    if (POST_ITEMS[i].bit == bit) return POST_ITEMS[i].reaction;
-  return "";
 }
 
 void postPrint(Print &out) {

@@ -1,0 +1,36 @@
+code,name,arg_meaning,notes
+0,none,,
+1,boot,reset reason,
+2,boot_count,consecutive abnormal boots,
+3,fw_dirty,0,this image was built with local edits
+4,safe_mode,boot count that triggered it,
+5,task_start_fail,task index,
+6,uptime_clean,seconds,the boot counter has been cleared
+7,wdt_subscribed,timeout in seconds,
+10,post_fail,failing bit index,
+11,post_pass,mask (0),
+12,post_mask,full mask,
+13,post_critical,failing bit index of a critical block,
+20,cfg_loaded,(slot << 24) | seq,
+21,cfg_defaults,0,nothing valid in NVS
+22,cfg_migrated,(from << 16) | to,
+23,cfg_changed,(field index << 24) | new value,
+24,cfg_saved,(slot << 24) | seq,
+25,cfg_save_fail,esp_err_t,
+26,cfg_slot_bad,slot index whose CRC did not match,
+27,cfg_reset,0,
+28,cfg_invalid,0,stored config failed validation
+30,radio_init_fail,attempt number,
+31,tx,seq,
+32,rx,(src << 16) | seq,
+33,tx_noack,seq,
+34,rx_bad_frame,frame_result_t,
+35,rx_dup,(src << 16) | seq,
+36,ack_rx,rssi (sign-extended),
+37,health_tx,post mask,
+38,radio_ready,frequency in kHz,
+39,tx_airtime,milliseconds the symbol took to send,
+40,lowbat_write_blocked,millivolts,
+41,batt_low,millivolts,
+42,batt_untrusted,0,"the ADC check failed, gate disabled"
+50,queue_full,queue index,

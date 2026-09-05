@@ -23,14 +23,15 @@ bool radioSendSymbol(char symbol, const EventStamp &stamp, TickType_t timeout);
 // health_period_s on its own.
 bool radioRequestHealth();
 
-int radioLastRssi();
-float radioLastSnr();
+// Reads the SX1276 version register over SPI, under the same lock the radio
+// task uses. The POST calls this rather than driving the bus itself: the radio
+// module owns SPI, and `self-test` runs from the shell task while the radio
+// task may be mid-transaction.
+bool radioProbeChip();
 
-uint32_t radioTxCount();
-uint32_t radioRxCount();
-uint32_t radioNoAckCount();
-uint32_t radioBadFrameCount();
-uint32_t radioDupCount();
+// The health frame carries this; every other counter is reported by
+// radioPrintStats() and has no caller outside the radio module.
+int radioLastRssi();
 
 void radioPrintStats(Print &out);
 

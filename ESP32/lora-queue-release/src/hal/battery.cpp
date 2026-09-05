@@ -13,6 +13,8 @@ void batteryBegin() {
   pinMode(VBAT_PIN, INPUT);
 }
 
+uint16_t batteryRawAdc() { return (uint16_t)analogRead(VBAT_PIN); }
+
 uint16_t batteryRawPinMillivolts() {
   uint32_t total = 0;
   for (uint8_t i = 0; i < SAMPLES; i++) total += analogReadMilliVolts(VBAT_PIN);

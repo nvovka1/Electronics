@@ -26,6 +26,12 @@ uint8_t batteryDeciVolts();
 bool batteryTrusted();
 void batterySetTrusted(bool trusted);
 
-// Raw pin millivolts before the divider and the calibration are applied.
-// Used by the ADC self-test, which wants to see noise rather than a value.
+// Raw pin millivolts before the divider and the calibration are applied,
+// averaged like batteryMillivolts().
 uint16_t batteryRawPinMillivolts();
+
+// One unaveraged 12-bit conversion. The ADC self-test needs this rather than
+// the averaged reading: averaging eight samples and dividing is exactly what
+// hides the one-LSB jitter the test is looking for, so it would report a
+// healthy ADC as dead.
+uint16_t batteryRawAdc();

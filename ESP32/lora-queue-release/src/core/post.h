@@ -49,8 +49,5 @@ uint16_t postMask();
 // cannot do its primary job, only report on itself.
 uint16_t postCriticalMask();
 
-const char *postBlockName(uint8_t bit);
-const char *postBlockReaction(uint8_t bit);
-
 // Human-readable breakdown for `self-test` and for the boot log.
 void postPrint(Print &out);

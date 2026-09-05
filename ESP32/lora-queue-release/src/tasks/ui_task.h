@@ -27,4 +27,7 @@ void uiRefresh();
 // the screen ever shows is what this node is and whether it passed its POST.
 void uiDrawSplash();
 
-void uiShowFatal(const char* message);
+// Does the panel still acknowledge on I2C? Under the same lock the UI task
+// draws with: `self-test` runs from the shell task, and two masters on one
+// bus is how an I2C transaction gets corrupted.
+bool uiProbePanel();

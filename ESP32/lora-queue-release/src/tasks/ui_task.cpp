@@ -18,6 +18,8 @@ constexpr int RX_CLEAR_AFTER = 16;
 
 constexpr UBaseType_t UI_QUEUE_LENGTH = 8;
 
+constexpr uint8_t SSD1306_I2C_ADDR = 0x3C;
+
 // OLED_RESET_PIN is -1 on purpose and must stay that way. The board variant
 // header calls GPIO16 the display reset, but these modules are PICO-D4, where
 // GPIO16 is the chip select of the embedded flash. Driving it wedges the boot
@@ -27,8 +29,20 @@ static Adafruit_SSD1306 display(128, 64, &Wire, OLED_RESET_PIN);
 static QueueHandle_t uiQueue = nullptr;
 static TaskHandle_t uiTaskHandle = nullptr;
 
-// Task-owned state: only ever touched from uiTask() (or from uiShowFatal(),
-// which suspends the task first).
+// The UI task owns I2C, but the POST has to probe the panel and `self-test`
+// re-runs the POST from the shell task.
+static SemaphoreHandle_t i2cMutex = nullptr;
+
+static bool i2cTake(TickType_t timeout) {
+  if (!i2cMutex) return true;   // setup() is still single-threaded
+  return xSemaphoreTake(i2cMutex, timeout) == pdTRUE;
+}
+
+static void i2cGive() {
+  if (i2cMutex) xSemaphoreGive(i2cMutex);
+}
+
+// Task-owned state: only ever touched from uiTask().
 static String txText = "";   // symbols we have sent
 static String rxText = "";   // symbols we have received
 static String status = "";   // bottom line
@@ -119,10 +133,14 @@ static void drawMainScreen() {
 }
 
 static void draw() {
+  if (!i2cTake(pdMS_TO_TICKS(200))) return;   // a skipped frame beats a corrupt bus
+
   if (showingInfo)
     drawInfoPage();
   else
     drawMainScreen();
+
+  i2cGive();
 }
 
 static void appendTrimmed(String& dst, char c, int maxLen = 17) {
@@ -230,13 +248,25 @@ static void uiTask(void* /*arg*/) {
 // --- lifecycle ------------------------------------------------------------
 
 bool uiBegin() {
+  if (!i2cMutex) i2cMutex = xSemaphoreCreateMutex();
+
   Wire.begin(OLED_SDA, OLED_SCL);
   return display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 }
 
+bool uiProbePanel() {
+  if (!i2cTake(pdMS_TO_TICKS(200))) return false;
+
+  Wire.beginTransmission(SSD1306_I2C_ADDR);
+  const bool acked = (Wire.endTransmission() == 0);
+
+  i2cGive();
+  return acked;
+}
+
 void uiDrawSplash() {
   showingInfo = true;
-  drawInfoPage();
+  draw();
   showingInfo = false;
 }
 
@@ -246,16 +276,4 @@ bool uiTaskStart(UBaseType_t priority, BaseType_t core) {
 
   return xTaskCreatePinnedToCore(uiTask, "ui", 4096, nullptr, priority,
                                  &uiTaskHandle, core) == pdPASS;
-}
-
-void uiShowFatal(const char* message) {
-  if (uiTaskHandle) vTaskSuspend(uiTaskHandle);   // we are taking the screen back
-
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setTextWrap(true);
-  display.setCursor(0, 0);
-  display.print(message);
-  display.display();
 }

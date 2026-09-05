@@ -24,6 +24,24 @@ constexpr uint8_t DEDUP_HISTORY = 8;
 static QueueHandle_t radioQueue = nullptr;
 static TaskHandle_t radioTaskHandle = nullptr;
 
+// The radio task owns the SPI bus, but `self-test` re-runs the POST from the
+// shell task, which needs to probe the chip. One mutex, held only for the
+// duration of a bus operation, keeps that from landing in the middle of a
+// transaction.
+static SemaphoreHandle_t s_busMutex = nullptr;
+
+static constexpr uint8_t SX1276_REG_VERSION = 0x42;
+static constexpr uint8_t SX1276_VERSION_ID = 0x12;
+
+static bool busTake(TickType_t timeout) {
+  if (!s_busMutex) return true;  // before the mutex exists, setup() is single-threaded
+  return xSemaphoreTake(s_busMutex, timeout) == pdTRUE;
+}
+
+static void busGive() {
+  if (s_busMutex) xSemaphoreGive(s_busMutex);
+}
+
 static uint16_t s_txSeq = 0;
 static int s_lastRssi = 0;
 static float s_lastSnr = 0.0f;
@@ -71,10 +89,16 @@ static void rememberRx(const uint8_t *buf, uint8_t len) {
 // symbol has left, then the radio goes straight back to listening: a receiver
 // that is not listening is the commonest way to lose an ACK.
 static bool transmitRaw(const uint8_t *buf, uint8_t len) {
-  if (LoRa.beginPacket() != 1) return false;
-  LoRa.write(buf, len);
-  const bool ok = (LoRa.endPacket() == 1);
-  LoRa.receive();
+  if (!busTake(pdMS_TO_TICKS(500))) return false;
+
+  bool ok = false;
+  if (LoRa.beginPacket() == 1) {
+    LoRa.write(buf, len);
+    ok = (LoRa.endPacket() == 1);
+    LoRa.receive();
+  }
+  busGive();
+
   if (ok) {
     s_txCount++;
     rememberTx(buf, len);
@@ -119,14 +143,22 @@ static void sendAck(uint16_t forSeq) {
 static bool pumpReceive(uint16_t waitingForSeq, bool waiting) {
   bool ackSeen = false;
 
-  int packetLen = LoRa.parsePacket();
-  while (packetLen > 0) {
+  for (;;) {
+    // The bus is held only long enough to drain one packet out of the modem.
+    // Decoding and dispatch happen outside the lock, so a slow OLED redraw
+    // triggered from here can never block a probe or a transmit.
+    if (!busTake(pdMS_TO_TICKS(100))) return ackSeen;
+
     uint8_t buf[FRAME_MAX_SIZE];
     uint8_t len = 0;
-    while (LoRa.available() && len < sizeof(buf)) buf[len++] = (uint8_t)LoRa.read();
+    if (LoRa.parsePacket() > 0) {
+      while (LoRa.available() && len < sizeof(buf)) buf[len++] = (uint8_t)LoRa.read();
+      s_lastRssi = LoRa.packetRssi();
+      s_lastSnr = LoRa.packetSnr();
+    }
+    busGive();
 
-    s_lastRssi = LoRa.packetRssi();
-    s_lastSnr = LoRa.packetSnr();
+    if (len == 0) break;
     rememberRx(buf, len);
 
     frame_t f;
@@ -136,7 +168,6 @@ static bool pumpReceive(uint16_t waitingForSeq, bool waiting) {
       // it is counted and dropped, never handed upwards.
       s_badFrameCount++;
       LOG_W(TAG_RADIO, E_RX_BAD_FRAME, (uint32_t)r);
-      packetLen = LoRa.parsePacket();
       continue;
     }
 
@@ -183,8 +214,6 @@ static bool pumpReceive(uint16_t waitingForSeq, bool waiting) {
       default:
         break;
     }
-
-    packetLen = LoRa.parsePacket();
   }
 
   return ackSeen;
@@ -273,10 +302,30 @@ static void radioTask(void * /*arg*/) {
 
 // --- lifecycle ------------------------------------------------------------
 
+bool radioProbeChip() {
+  if (!busTake(pdMS_TO_TICKS(500))) return false;
+
+  // An explicit transaction, because a bare SPI.transfer() would run at
+  // whatever clock and mode the bus was last left in.
+  SPI.beginTransaction(SPISettings(8000000, MSBFIRST, SPI_MODE0));
+  digitalWrite(LORA_CS, LOW);
+  SPI.transfer(SX1276_REG_VERSION & 0x7F);  // MSB clear = read
+  const uint8_t version = SPI.transfer(0x00);
+  digitalWrite(LORA_CS, HIGH);
+  SPI.endTransaction();
+
+  busGive();
+  return version == SX1276_VERSION_ID;
+}
+
 bool radioBegin() {
   const config_t &cfg = config();
 
+  if (!s_busMutex) s_busMutex = xSemaphoreCreateMutex();
+
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
+  pinMode(LORA_CS, OUTPUT);
+  digitalWrite(LORA_CS, HIGH);
   LoRa.setPins(LORA_CS, LORA_RST, LORA_IRQ);
   if (!LoRa.begin((long)cfg.freq_hz)) return false;
 
@@ -330,13 +379,6 @@ bool radioRequestHealth() {
 }
 
 int radioLastRssi() { return s_lastRssi; }
-float radioLastSnr() { return s_lastSnr; }
-
-uint32_t radioTxCount() { return s_txCount; }
-uint32_t radioRxCount() { return s_rxCount; }
-uint32_t radioNoAckCount() { return s_noAckCount; }
-uint32_t radioBadFrameCount() { return s_badFrameCount; }
-uint32_t radioDupCount() { return s_dupCount; }
 
 void radioPrintStats(Print &out) {
   const config_t &cfg = config();

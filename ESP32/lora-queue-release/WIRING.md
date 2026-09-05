@@ -19,8 +19,10 @@ The LoRa radio and OLED are wired internally on the PCB. PlatformIO's
 | On-board button ("PRG" / IO0) | 0 |
 
 ⚠️ **Attach the antenna before powering** — transmitting without one can kill the radio.
-⚠️ Set `LORA_FREQ` in `src/board_pins.h` to match your board (433 / 868 / 915 MHz),
-identical on both boards.
+⚠️ Set the frequency to match your board and region, identically on both:
+`config set freq_hz 868000000`. It is a runtime setting now, not a rebuild.
+The configured range is 863–870 MHz; a 433 or 915 MHz board needs the bounds in
+`lib/cfg/config_schema.cpp` widened first.
 
 ## What you wire externally
 
@@ -40,7 +42,9 @@ so pressed = LOW).
 - **Two quick taps** (second one within `DOUBLE_GAP_MS`) → a **dash** (`-`) is transmitted.
 - Holding the button lights the LED + buzzer as live feedback (sidetone).
 
-Tune `DEBOUNCE_MS` and `DOUBLE_GAP_MS` in `src/button_task.cpp` to your hand.
+Tune `DEBOUNCE_MS` and `DOUBLE_GAP_MS` in `src/tasks/button_task.cpp` to your
+hand. Holding the key for 2 s (`LONG_PRESS_MS`) switches the screen to the
+identity page instead of keying a symbol.
 
 Every board **listens continuously**; each received symbol is appended to the
 screen and beeped. The **OLED shows**: node name, `TX:` (what you've sent),
@@ -58,22 +62,30 @@ button -> Button Task -> keyEventQueue -> loop() -> radioQueue -> Radio Task -> 
 
 | Unit | Priority / core | Owns | Responsibility |
 |------|-----------------|------|----------------|
-| `buttonTask` | 3 / core 1 | key GPIO 0 | debounce, classify single vs. double press, post `KeyEvent` |
-| `radioTask` | 2 / core 0 | LoRa radio | transmit queued symbols, poll for incoming ones, post `UiEvent` |
-| `loop()` | 1 / core 1 | — | block on `keyEventQueue`, map press → `.`/`-`, post `RadioRequest` |
-| `uiTask` | 1 / core 0 | OLED, I²C, TX/RX text | apply the event to the TX/RX lines and redraw |
+| `buttonTask` | 3 / core 1 | key GPIO 0 | debounce, classify single / double / long press, post `KeyEvent` |
+| `radioTask` | 2 / core 0 | LoRa radio, SPI | frame and transmit symbols, wait for ACKs, poll for incoming frames, send health telemetry |
+| `loop()` | 1 / core 1 | — | block on `keyEventQueue`, map press → `.`/`-`, post `RadioRequest`, feed the watchdog |
+| `uiTask` | 1 / core 0 | OLED, I²C, TX/RX text | apply the event to the screen and redraw |
+| `shellTask` | 1 / core 0 | UART input | parse and dispatch commands; answers even while the radio is waiting out an ACK |
+| `toneTask` | 1 / core 0 | — | play the sidetone, which costs up to 360 ms of `vTaskDelay` |
 
 One module per task, each owning its queue, its hardware and its own tunables:
 
 | File | Contains | Tunables |
 |------|----------|----------|
-| [`main.cpp`](src/main.cpp) | `setup()` starts the tasks, `loop()` dispatches | task priorities and cores |
-| [`button_task.cpp`](src/button_task.cpp) | debounce + single/double classification | `DEBOUNCE_MS`, `DOUBLE_GAP_MS`, `BUTTON_POLL_MS` |
-| [`radio_task.cpp`](src/radio_task.cpp) | LoRa transmit + receive polling | `RADIO_POLL_MS` |
-| [`ui_task.cpp`](src/ui_task.cpp) | OLED drawing, TX/RX text lines | `RX_CLEAR_AFTER` |
-| [`tone.cpp`](src/tone.cpp) | LED + buzzer, the one shared device | `DOT_MS`, `DASH_MS` |
-| [`app_events.h`](src/app_events.h) | the structs that travel on the queues | — |
-| [`board_pins.h`](src/board_pins.h) | pins and `LORA_FREQ` | all pin numbers |
+| [`main.cpp`](src/main.cpp) | boot sequence, `loop()` dispatches | task priorities and cores, `WDT_TIMEOUT_S` |
+| [`tasks/button_task.cpp`](src/tasks/button_task.cpp) | debounce + single/double/long classification | `DEBOUNCE_MS`, `DOUBLE_GAP_MS`, `BUTTON_POLL_MS`, `LONG_PRESS_MS` |
+| [`tasks/radio_task.cpp`](src/tasks/radio_task.cpp) | framed TX/RX, ACK and retry, duplicate suppression | `RADIO_POLL_MS`, `DEDUP_HISTORY` |
+| [`tasks/ui_task.cpp`](src/tasks/ui_task.cpp) | OLED drawing, main and identity pages | `RX_CLEAR_AFTER` |
+| [`tasks/tone.cpp`](src/tasks/tone.cpp) | LED + buzzer, the one shared device | `DOT_MS`, `DASH_MS` |
+| [`app/shell.cpp`](src/app/shell.cpp) | the UART command set | `SHELL_LINE_MAX` |
+| [`app/app_events.h`](src/app/app_events.h) | the structs that travel on the queues | — |
+| [`hal/board_pins.h`](src/hal/board_pins.h) | pins | all pin numbers |
+
+Everything that used to be a `constexpr` and is now worth changing in the field
+— frequency, spreading factor, coding rate, sync word, TX power, ACK timeout,
+retry count, health period, log level, battery floor — lives in the config
+instead. See `config get`.
 
 - Three queues, 8 slots each, one per module — each is `static`, reachable only
   through its module's functions (`radioSendSymbol`, `uiPostSymbolSent`,
@@ -128,11 +140,15 @@ The LILYGO LoRa32 has an **on-board Li-ion charger + regulator**:
 | Testing / programming | USB cable |
 | Portable | 18650 in holder, or LiPo on JST (charges via USB) |
 
-## Build & upload (two named nodes, same firmware)
+## Build & upload (one image, two boards)
 ```
-pio run -e boardA -t upload    # board #1 -> name "A"
-pio run -e boardB -t upload    # board #2 -> name "B"
-pio device monitor             # serial @ 115200
+pio run -e field -t upload --upload-port COM5   # board #1
+pio run -e field -t upload --upload-port COM6   # board #2
+pio device monitor --port COM6                  # serial @ 115200
+> config set node_id 2                          # give board #2 its own id
 ```
+The node identity is no longer a build flag: it lives in NVS, so the same
+binary goes on every board. Use `-e dev` while working on the bench — it has
+the full log and the test commands. See [README.md](README.md).
 If your board is an older revision, change `board` in `platformio.ini` to
 `ttgo-lora32-v2` or `ttgo-lora32-v1` (printed on the PCB).

@@ -230,6 +230,7 @@ void shellPrintBanner(Print &out) {
   out.println("  version              build, serial, uptime, reboots, POST, cfg");
   out.println("  self-test            re-run the POST and print the mask");
   out.println("  health               the 12 bytes that go out as telemetry");
+  out.println("  health send          transmit one now instead of waiting");
   out.println("  radio                link settings and counters");
   out.println("  frames               last TX and RX frame in hex, decoded");
   out.println("  log dump [n]         newest n records from the ring");
@@ -268,7 +269,14 @@ static void dispatch(Print &out, char *line) {
   } else if (strcmp(argv[0], "self-test") == 0 || strcmp(argv[0], "selftest") == 0) {
     cmdSelfTest(out);
   } else if (strcmp(argv[0], "health") == 0) {
-    healthPrint(out);
+    if (argc >= 2 && strcmp(argv[1], "send") == 0) {
+      // Forces a check-in instead of waiting out health_period_s, which is how
+      // an operator confirms the uplink without keying a symbol.
+      out.println(radioRequestHealth() ? "OK  health frame queued"
+                                       : "ERR radio task not running");
+    } else {
+      healthPrint(out);
+    }
   } else if (strcmp(argv[0], "radio") == 0) {
     radioPrintStats(out);
   } else if (strcmp(argv[0], "frames") == 0) {
