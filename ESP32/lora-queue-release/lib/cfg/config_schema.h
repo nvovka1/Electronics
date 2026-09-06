@@ -11,7 +11,7 @@
 // display them: they can be older than the firmware and not know the new
 // limits, so validation is always the device's job.
 
-#define CFG_VERSION_CURRENT 3
+#define CFG_VERSION_CURRENT 4
 
 // Layout invariant across every config version: freq_hz occupies bytes 0..3
 // and cfg_version bytes 4..5. That makes any stored blob self-describing, so a
@@ -73,7 +73,36 @@ typedef struct { // 28 bytes
   uint8_t _pad[1];
 } config_v3_t;
 
-typedef config_v3_t config_t;
+// v4 adds one byte, and it lands in the padding v3 already carried - so the
+// record is the same size and the same shape, and only cfg_version tells them
+// apart. That byte is the WiFi transmit power, which is here rather than
+// compiled in because it is the setting that decides whether a node associates
+// at all: too low and a distant node never reaches the access point, too high
+// and a board on a thin USB cable with no battery browns out the moment the
+// transmitter keys up.
+
+typedef struct { // 28 bytes
+  uint32_t freq_hz;
+  uint16_t cfg_version;
+  uint16_t node_id;
+  uint16_t health_period_s;
+  uint16_t ack_timeout_ms;
+  uint16_t vbat_min_mv;
+  uint16_t report_period_s;
+  uint16_t ota_vbat_min_mv;
+  uint8_t log_level;
+  uint8_t tx_power;    // the LoRa transmitter
+  uint8_t spreading;
+  uint8_t coding_rate;
+  uint8_t sync_word;
+  uint8_t ack_retries;
+  uint8_t wifi_enabled;
+  uint8_t ota_enabled;
+  uint8_t tls_verify;
+  uint8_t wifi_tx_dbm; // the WiFi transmitter, and a supply-current setting
+} config_v4_t;
+
+typedef config_v4_t config_t;
 
 typedef enum { CFG_U8, CFG_U16, CFG_U32 } cfg_type_t;
 
@@ -120,3 +149,4 @@ int config_migrate(const void *blob, size_t blob_len, uint16_t from_version, con
 // short-circuits to "current" is a chain with one untested link in it.
 void config_migrate_1_2(const config_v1_t *in, config_v2_t *out);
 void config_migrate_2_3(const config_v2_t *in, config_v3_t *out);
+void config_migrate_3_4(const config_v3_t *in, config_v4_t *out);

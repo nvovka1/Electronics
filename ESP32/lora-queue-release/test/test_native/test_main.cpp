@@ -211,9 +211,17 @@ static void test_config_struct_layout_is_stable(void) {
   TEST_ASSERT_EQUAL_size_t(16, sizeof(config_v1_t));
   TEST_ASSERT_EQUAL_size_t(20, sizeof(config_v2_t));
   TEST_ASSERT_EQUAL_size_t(28, sizeof(config_v3_t));
+
+  // v4 spends the padding byte v3 was already carrying, so the record does not
+  // change size. Two versions of the same size is fine - cfg_version is what
+  // identifies a blob - but it means the size check in config_migrate() cannot
+  // catch a v3 record mislabelled as v4, so this assertion is the thing keeping
+  // that from happening by accident.
+  TEST_ASSERT_EQUAL_size_t(28, sizeof(config_v4_t));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v1_t, cfg_version));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v2_t, cfg_version));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v3_t, cfg_version));
+  TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v4_t, cfg_version));
 
   // Every version has to fit the container it is stored in, and the check
   // belongs here rather than in a comment: the day a v4 outgrows the blob is
@@ -362,8 +370,107 @@ static void test_migrate_2_3_carries_old_and_defaults_new(void) {
 
   TEST_ASSERT_EQUAL_UINT16(3, v3.cfg_version);
 
+  // config_validate() is deliberately not called here. It only ever judges the
+  // CURRENT version - that is what makes it the right check for a config about
+  // to be used - so an intermediate hop is validated at the end of the chain,
+  // by test_migrate_chain_from_blob, and not halfway along it.
+}
+
+static void test_migrate_3_4_lowers_the_wifi_transmit_power(void) {
+  config_v3_t v3;
+  memset(&v3, 0, sizeof(v3));
+  v3.cfg_version = 3;
+  v3.freq_hz = 868300000u;
+  v3.node_id = 12;
+  v3.health_period_s = 120;
+  v3.ack_timeout_ms = 900;
+  v3.vbat_min_mv = 3350;
+  v3.report_period_s = 600;
+  v3.ota_vbat_min_mv = 3700;
+  v3.log_level = 4;
+  v3.tx_power = 18;
+  v3.spreading = 11;
+  v3.coding_rate = 6;
+  v3.sync_word = 0x2B;
+  v3.ack_retries = 2;
+  v3.wifi_enabled = 1;
+  v3.ota_enabled = 0; // an operator turned updates off on this node
+  v3.tls_verify = 1;
+
+  config_v4_t v4;
+  config_migrate_3_4(&v3, &v4);
+
+  // Every v3 field arrives untouched. ota_enabled in particular: a node
+  // somebody deliberately took out of the update rota must not quietly rejoin
+  // it because of a migration.
+  TEST_ASSERT_EQUAL_UINT32(868300000u, v4.freq_hz);
+  TEST_ASSERT_EQUAL_UINT16(12, v4.node_id);
+  TEST_ASSERT_EQUAL_UINT16(120, v4.health_period_s);
+  TEST_ASSERT_EQUAL_UINT16(900, v4.ack_timeout_ms);
+  TEST_ASSERT_EQUAL_UINT16(3350, v4.vbat_min_mv);
+  TEST_ASSERT_EQUAL_UINT16(600, v4.report_period_s);
+  TEST_ASSERT_EQUAL_UINT16(3700, v4.ota_vbat_min_mv);
+  TEST_ASSERT_EQUAL_UINT8(4, v4.log_level);
+  TEST_ASSERT_EQUAL_UINT8(18, v4.tx_power); // the LoRa transmitter, unchanged
+  TEST_ASSERT_EQUAL_UINT8(11, v4.spreading);
+  TEST_ASSERT_EQUAL_UINT8(6, v4.coding_rate);
+  TEST_ASSERT_EQUAL_UINT8(2, v4.ack_retries);
+  TEST_ASSERT_EQUAL_UINT8(1, v4.wifi_enabled);
+  TEST_ASSERT_EQUAL_UINT8(0, v4.ota_enabled);
+  TEST_ASSERT_EQUAL_UINT8(1, v4.tls_verify);
+
+  // The new field, and the reason for the release: a v3 node transmitted at
+  // whatever the radio defaulted to, which is 19.5 dBm, and on a board with no
+  // battery that burst is what causes the brownout.
+  TEST_ASSERT_EQUAL_UINT8(13, v4.wifi_tx_dbm);
+  TEST_ASSERT_TRUE(v4.wifi_tx_dbm < 19);
+
+  TEST_ASSERT_EQUAL_UINT16(4, v4.cfg_version);
+
   const char *bad = nullptr;
-  TEST_ASSERT_EQUAL_INT(0, config_validate(&v3, &bad));
+  TEST_ASSERT_EQUAL_INT(0, config_validate(&v4, &bad));
+}
+
+static void test_migrate_3_4_from_blob(void) {
+  // The hop the one board already running fw 1.1.0 takes on this release.
+  config_v3_t v3;
+  memset(&v3, 0, sizeof(v3));
+  v3.cfg_version = 3;
+  v3.freq_hz = 868000000u;
+  v3.node_id = 191;
+  v3.health_period_s = 60;
+  v3.ack_timeout_ms = 600;
+  v3.vbat_min_mv = 3300;
+  v3.report_period_s = 300;
+  v3.ota_vbat_min_mv = 3600;
+  v3.log_level = 3;
+  v3.tx_power = 14;
+  v3.spreading = 7;
+  v3.coding_rate = 5;
+  v3.sync_word = 0x2B;
+  v3.ack_retries = 3;
+  v3.wifi_enabled = 1;
+  v3.ota_enabled = 1;
+  v3.tls_verify = 1;
+
+  config_t out;
+  TEST_ASSERT_EQUAL_INT(0, config_migrate(&v3, sizeof(v3), 3, &out));
+  TEST_ASSERT_EQUAL_UINT16(CFG_VERSION_CURRENT, out.cfg_version);
+  TEST_ASSERT_EQUAL_UINT16(191, out.node_id);
+  TEST_ASSERT_EQUAL_UINT8(13, out.wifi_tx_dbm);
+
+  // v3 and v4 are the same size, so only the claimed version separates them.
+  // A v3 blob labelled v4 is copied through verbatim and its padding byte
+  // becomes wifi_tx_dbm, which would be 0 - outside the field's 2..20 range.
+  // config_validate() is what catches that, and configBegin() falls back to
+  // defaults rather than transmitting at a level the radio cannot produce.
+  config_v3_t mislabelled = v3;
+  mislabelled.cfg_version = 4;
+  config_t wrong;
+  TEST_ASSERT_EQUAL_INT(0, config_migrate(&mislabelled, sizeof(mislabelled), 4, &wrong));
+  const char *bad = nullptr;
+  TEST_ASSERT_EQUAL_INT(-1, config_validate(&wrong, &bad));
+  TEST_ASSERT_EQUAL_STRING("wifi_tx_dbm", bad);
 }
 
 static void test_migrate_chain_from_blob(void) {
@@ -381,6 +488,7 @@ static void test_migrate_chain_from_blob(void) {
   // update reach it next time without anyone driving out.
   TEST_ASSERT_EQUAL_UINT8(1, out.wifi_enabled);
   TEST_ASSERT_EQUAL_UINT16(300, out.report_period_s);
+  TEST_ASSERT_EQUAL_UINT8(13, out.wifi_tx_dbm); // survived three hops
 
   const char *bad = nullptr;
   TEST_ASSERT_EQUAL_INT(0, config_validate(&out, &bad));
@@ -592,8 +700,10 @@ int main(int, char **) {
 
   RUN_TEST(test_migrate_1_2_carries_old_and_defaults_new);
   RUN_TEST(test_migrate_2_3_carries_old_and_defaults_new);
+  RUN_TEST(test_migrate_3_4_lowers_the_wifi_transmit_power);
   RUN_TEST(test_migrate_chain_from_blob);
   RUN_TEST(test_migrate_2_3_from_blob);
+  RUN_TEST(test_migrate_3_4_from_blob);
   RUN_TEST(test_migrate_passes_current_version_through);
   RUN_TEST(test_migrate_refuses_wrong_size_and_future_version);
 

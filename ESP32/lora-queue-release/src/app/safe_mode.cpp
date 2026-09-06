@@ -18,6 +18,15 @@ static constexpr uint32_t RTC_MAGIC = 0x4C51424Du; // "LQBM"
 RTC_NOINIT_ATTR static uint32_t s_rtcMagic;
 RTC_NOINIT_ATTR static uint8_t s_rtcAbnormal;
 
+// RTC memory only, deliberately not mirrored into NVS. A board that is browning
+// out is the worst possible place to be writing flash, and the counter is only
+// meaningful within one run of power anyway: the question it answers is "has
+// the supply already failed since it was last connected", and a power cycle is
+// exactly the event that makes the answer no.
+RTC_NOINIT_ATTR static uint8_t s_rtcBrownouts;
+
+static uint8_t s_brownouts = 0;
+
 static uint8_t s_abnormal = 0;
 static uint32_t s_total = 0;
 static bool s_safeMode = false;
@@ -62,9 +71,11 @@ void safeModeBegin() {
   // it cannot have been left stale by a write that never reached flash.
   if (s_rtcMagic == RTC_MAGIC) {
     s_abnormal = s_rtcAbnormal;
+    s_brownouts = s_rtcBrownouts;
   } else {
     s_rtcMagic = RTC_MAGIC;
     s_rtcAbnormal = s_abnormal;
+    s_brownouts = 0;
   }
 
   s_total++;
@@ -77,7 +88,17 @@ void safeModeBegin() {
     s_abnormal = 0;
   }
 
+  if (s_reason == ESP_RST_BROWNOUT) {
+    if (s_brownouts < 255) s_brownouts++;
+  } else if (s_reason == ESP_RST_POWERON) {
+    // Somebody has been at the hardware. Give the supply the benefit of the
+    // doubt: they may well have plugged in the battery this counter exists to
+    // ask for.
+    s_brownouts = 0;
+  }
+
   s_rtcAbnormal = s_abnormal;
+  s_rtcBrownouts = s_brownouts;
   persistCounters();
 
   s_safeMode = (s_abnormal >= SAFE_MODE_THRESHOLD);
@@ -88,11 +109,13 @@ void safeModeBegin() {
 }
 
 void safeModeTick() {
-  if (s_counterCleared || s_abnormal == 0) return;
+  if (s_counterCleared || (s_abnormal == 0 && s_brownouts == 0)) return;
   if (millis() < CLEAN_UPTIME_MS) return;
 
   s_abnormal = 0;
   s_rtcAbnormal = 0;
+  s_brownouts = 0;
+  s_rtcBrownouts = 0;
   s_counterCleared = true;
   persistCounters();
 
@@ -101,6 +124,7 @@ void safeModeTick() {
 
 bool safeModeActive() { return s_safeMode; }
 uint8_t abnormalBootCount() { return s_abnormal; }
+uint8_t brownoutStreak() { return s_brownouts; }
 uint32_t totalBootCount() { return s_total; }
 esp_reset_reason_t lastResetReason() { return s_reason; }
 

@@ -30,6 +30,10 @@ const cfg_field_t CFG_FIELDS[] = {
     {"tls_verify", CFG_U8, F(tls_verify), 0, 1, "", 0},
     {"ota_enabled", CFG_U8, F(ota_enabled), 0, 1, "", 1},
     {"ota_vbat_min_mv", CFG_U16, F(ota_vbat_min_mv), 3300, 4200, "mV", 1},
+    // The floor is 2 dBm rather than 0: below that an association is unreliable
+    // even in the same room, and a node that cannot associate cannot be told to
+    // turn its power back up.
+    {"wifi_tx_dbm", CFG_U8, F(wifi_tx_dbm), 2, 20, "dBm", 0},
 };
 
 const size_t CFG_FIELD_COUNT = sizeof(CFG_FIELDS) / sizeof(CFG_FIELDS[0]);
@@ -64,6 +68,13 @@ void config_defaults(config_t *out, uint16_t node_id) {
   // a megabyte and then reboots into an image that has never run: the one
   // moment in this device's life where a flat cell turns a bug into a brick.
   out->ota_vbat_min_mv = 3600;
+
+  // 13 dBm, not the 19.5 the radio defaults to. The transmit burst during an
+  // association is the largest current this board ever draws, and at full power
+  // it is more than a thin USB cable with no battery fitted can deliver - the
+  // symptom is a brownout reset a few milliseconds after `wifi_connecting`.
+  // 13 dBm roughly halves the peak and is ample for any indoor network.
+  out->wifi_tx_dbm = 13;
 }
 
 const cfg_field_t *config_field_by_name(const char *name) {
@@ -183,10 +194,34 @@ void config_migrate_1_2(const config_v1_t *in, config_v2_t *out) {
   out->cfg_version = 2;
 }
 
+static void defaults_v3(config_v3_t *out, uint16_t node_id) {
+  // The v3 defaults as fw 1.1.0 shipped them, frozen for the same reason
+  // defaults_v2 is: a hop has to land on the version it names, not on whatever
+  // the current release calls a default.
+  memset(out, 0, sizeof(*out));
+  out->cfg_version = 3;
+  out->node_id = node_id;
+  out->freq_hz = 868000000u;
+  out->health_period_s = 60;
+  out->ack_timeout_ms = 600;
+  out->vbat_min_mv = 3300;
+  out->log_level = 3;
+  out->tx_power = 14;
+  out->spreading = 7;
+  out->coding_rate = 5;
+  out->sync_word = 0x2B;
+  out->ack_retries = 3;
+  out->wifi_enabled = 1;
+  out->report_period_s = 300;
+  out->tls_verify = 1;
+  out->ota_enabled = 1;
+  out->ota_vbat_min_mv = 3600;
+}
+
 void config_migrate_2_3(const config_v2_t *in, config_v3_t *out) {
   if (!in || !out) return;
 
-  config_defaults(out, in->node_id);
+  defaults_v3(out, in->node_id);
 
   out->freq_hz = in->freq_hz;
   out->log_level = in->log_level;
@@ -210,6 +245,35 @@ void config_migrate_2_3(const config_v2_t *in, config_v3_t *out) {
   out->cfg_version = 3;
 }
 
+void config_migrate_3_4(const config_v3_t *in, config_v4_t *out) {
+  if (!in || !out) return;
+
+  config_defaults(out, in->node_id);
+
+  out->freq_hz = in->freq_hz;
+  out->log_level = in->log_level;
+  out->tx_power = in->tx_power;
+  out->spreading = in->spreading;
+  out->coding_rate = in->coding_rate;
+  out->sync_word = in->sync_word;
+  out->health_period_s = in->health_period_s;
+  out->ack_timeout_ms = in->ack_timeout_ms;
+  out->ack_retries = in->ack_retries;
+  out->vbat_min_mv = in->vbat_min_mv;
+  out->report_period_s = in->report_period_s;
+  out->ota_vbat_min_mv = in->ota_vbat_min_mv;
+  out->wifi_enabled = in->wifi_enabled;
+  out->ota_enabled = in->ota_enabled;
+  out->tls_verify = in->tls_verify;
+
+  // wifi_tx_dbm is new and takes the firmware's default. Note that this is a
+  // migration that lowers something a node was already doing: v3 transmitted at
+  // whatever the radio defaulted to, which is 19.5 dBm. A node coming from v3
+  // therefore comes back quieter, which is the entire point of the release.
+
+  out->cfg_version = 4;
+}
+
 int config_migrate(const void *blob, size_t blob_len, uint16_t from_version, config_t *out) {
   if (!blob || !out) return -1;
 
@@ -218,6 +282,7 @@ int config_migrate(const void *blob, size_t blob_len, uint16_t from_version, con
   // upgrade uses. No shortcut from 1 straight to 3: the shortcut is the link
   // nobody tests and the one that quietly drops a field.
   config_v2_t v2;
+  config_v3_t v3;
 
   switch (from_version) {
     case 1: {
@@ -226,14 +291,23 @@ int config_migrate(const void *blob, size_t blob_len, uint16_t from_version, con
       memcpy(&v1, blob, sizeof(v1));
       if (v1.cfg_version != 1) return -1;
       config_migrate_1_2(&v1, &v2);
-      config_migrate_2_3(&v2, out);
+      config_migrate_2_3(&v2, &v3);
+      config_migrate_3_4(&v3, out);
       return 0;
     }
     case 2: {
       if (blob_len != sizeof(config_v2_t)) return -1;
       memcpy(&v2, blob, sizeof(v2));
       if (v2.cfg_version != 2) return -1;
-      config_migrate_2_3(&v2, out);
+      config_migrate_2_3(&v2, &v3);
+      config_migrate_3_4(&v3, out);
+      return 0;
+    }
+    case 3: {
+      if (blob_len != sizeof(config_v3_t)) return -1;
+      memcpy(&v3, blob, sizeof(v3));
+      if (v3.cfg_version != 3) return -1;
+      config_migrate_3_4(&v3, out);
       return 0;
     }
     case CFG_VERSION_CURRENT: {

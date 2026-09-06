@@ -32,7 +32,7 @@ code,name,arg_meaning,notes
 39,tx_airtime,milliseconds the symbol took to send,
 40,lowbat_write_blocked,millivolts,
 41,batt_low,millivolts,
-42,batt_untrusted,0,"the ADC check failed, gate disabled"
+42,batt_untrusted,"the implausible millivolts read, or 0",
 50,queue_full,queue index,
 60,net_cfg_loaded,1 when an SSID and a base URL are set,
 61,net_cfg_changed,field index,"never the value, two are secrets"
@@ -48,6 +48,8 @@ code,name,arg_meaning,notes
 71,tls_insecure,0,certificate checking is off on this node
 72,net_unprovisioned,0,no SSID or no base URL
 73,net_disabled,0,wifi_enabled is 0
+74,net_tx_power,dBm actually applied to the transmitter,
+75,net_brownout_hold,consecutive brownouts,the uplink is off
 80,ota_check,http status,204 means nothing to do
 81,ota_available,image size in bytes,
 82,ota_refused,ota_gate_t: which precondition said no,

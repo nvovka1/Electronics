@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <time.h>
 
+#include "app/safe_mode.h"
 #include "core/config.h"
 #include "core/log.h"
 #include "core/netcfg.h"
@@ -16,6 +17,16 @@
 // lost unless the link has been down long enough to overwrite them - and when
 // that happens the gap is logged rather than quietly closed.
 static constexpr uint16_t LOG_BATCH_MAX = 32;
+
+// Three brownouts and the uplink stays down until somebody power-cycles the
+// board - which is also the gesture that most often means they have just fitted
+// the battery or changed the cable.
+static constexpr uint8_t BROWNOUT_HOLD_AT = 3;
+
+// After a brownout, let the rails settle and the rest of start-up finish before
+// keying the transmitter again. The OLED, the LoRa module and the flash are all
+// drawing during the first couple of seconds of a boot.
+static constexpr uint32_t BROWNOUT_SETTLE_MS = 5000;
 
 static constexpr uint32_t ASSOCIATE_TIMEOUT_MS = 20000;
 static constexpr uint32_t BACKOFF_MIN_MS = 30000;
@@ -41,6 +52,46 @@ static volatile bool s_applyRequested = false;
 
 static bool s_warnedUnprovisioned = false;
 static bool s_warnedDisabled = false;
+static bool s_warnedBrownout = false;
+static int8_t s_appliedDbm = 0;
+
+// --- transmit power -------------------------------------------------------
+
+// wifi_power_t counts in quarter-dBm steps and only a fixed set of levels
+// exists, so a requested value is rounded DOWN to a level the radio actually
+// has. Rounding down rather than to the nearest matters: every step up is more
+// peak current out of the supply, and this whole mechanism exists because that
+// current is what knocks the board over.
+static wifi_power_t powerLevelFor(uint8_t dbm) {
+  static const wifi_power_t LEVELS[] = {
+      WIFI_POWER_2dBm,  WIFI_POWER_5dBm,    WIFI_POWER_7dBm,  WIFI_POWER_8_5dBm,
+      WIFI_POWER_11dBm, WIFI_POWER_13dBm,   WIFI_POWER_15dBm, WIFI_POWER_17dBm,
+      WIFI_POWER_18_5dBm, WIFI_POWER_19dBm, WIFI_POWER_19_5dBm,
+  };
+
+  wifi_power_t chosen = LEVELS[0];
+  for (size_t i = 0; i < sizeof(LEVELS) / sizeof(LEVELS[0]); i++)
+    if ((int)LEVELS[i] <= (int)dbm * 4) chosen = LEVELS[i];
+
+  return chosen;
+}
+
+// Must run after WiFi.mode() has started the driver and before WiFi.begin()
+// keys the transmitter for the first time - the association burst is the spike
+// that matters, so setting this afterwards would be setting it too late.
+static void applyTxPower() {
+  uint8_t dbm = config().wifi_tx_dbm;
+
+  // The supply has already failed at least once since power was applied. Ask
+  // for the least the radio can do rather than the configured value.
+  if (brownoutStreak() > 0) dbm = 2;
+
+  const wifi_power_t level = powerLevelFor(dbm);
+  WiFi.setTxPower(level);
+
+  s_appliedDbm = (int8_t)((int)level / 4);
+  LOG_I(TAG_NET, E_NET_TX_POWER, (uint32_t)s_appliedDbm);
+}
 
 // --- association ----------------------------------------------------------
 
@@ -58,6 +109,7 @@ static bool ensureAssociated() {
   // Modem sleep between beacons. On a node that talks for two seconds every
   // five minutes this is most of the WiFi power budget.
   WiFi.setSleep(true);
+  applyTxPower();
   WiFi.begin(netcfgSsid(), netcfgPassword());
 
   const uint32_t started = millis();
@@ -209,7 +261,31 @@ static void runCycle() {
 // --- the task -------------------------------------------------------------
 
 static void netTask(void * /*arg*/) {
+  // The supply gave way partway through the last boot. Whatever else happens,
+  // do not be the first thing to draw current this time.
+  if (brownoutStreak() > 0) vTaskDelay(pdMS_TO_TICKS(BROWNOUT_SETTLE_MS));
+
   for (;;) {
+    // Checked before wifi_enabled and before everything else, because this is
+    // the one condition where bringing the radio up is what stops the node
+    // running at all. Safe mode does not cover it: safe mode leaves the uplink
+    // on deliberately, so that a node which keeps crashing can still be cured
+    // remotely - and if the uplink is itself the cause, that is a reset loop
+    // with no way out. This is the way out.
+    if (netBrownoutHold()) {
+      if (!s_warnedBrownout) {
+        LOG_E(TAG_NET, E_NET_BROWNOUT_HOLD, brownoutStreak());
+        uiPostBanner("WIFI OFF: BROWNOUT");
+        s_warnedBrownout = true;
+      }
+      if (WiFi.getMode() != WIFI_OFF) {
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+      }
+      vTaskDelay(pdMS_TO_TICKS(5000));
+      continue;
+    }
+
     if (!config().wifi_enabled) {
       if (!s_warnedDisabled) {
         LOG_I(TAG_NET, E_NET_DISABLED, 0);
@@ -287,6 +363,7 @@ bool netTaskStart(UBaseType_t priority, BaseType_t core) {
 }
 
 bool netIsConnected() { return WiFi.status() == WL_CONNECTED; }
+bool netBrownoutHold() { return brownoutStreak() >= BROWNOUT_HOLD_AT; }
 bool netTimeIsSynced() { return s_timeSynced; }
 uint32_t netLastCheckInMs() { return s_lastCheckInMs; }
 const char *netTargetVersion() { return s_targetVersion; }
@@ -300,7 +377,23 @@ void netRequestUpdateCheck(bool apply) {
 }
 
 void netPrintStatus(Print &out) {
+  if (netBrownoutHold()) {
+    out.printf("wifi      HELD OFF - %u brownout resets since power was applied\n",
+               brownoutStreak());
+    out.println("          The supply cannot deliver the transmit burst. Fit the");
+    out.println("          battery, use a shorter cable or a powered port, then");
+    out.println("          power-cycle the board. `config set wifi_tx_dbm 2` makes");
+    out.println("          the burst as small as this radio can make it.");
+    return;
+  }
+
   out.printf("wifi      %s\n", config().wifi_enabled ? "enabled" : "disabled by config");
+  out.printf("tx power  %u dBm configured", config().wifi_tx_dbm);
+  if (s_appliedDbm) out.printf(", %d dBm applied", s_appliedDbm);
+  if (brownoutStreak())
+    out.printf("   (held down: %u brownout%s since power-on)", brownoutStreak(),
+               brownoutStreak() == 1 ? "" : "s");
+  out.println();
   out.printf("ssid      %s\n", netcfgSsid()[0] ? netcfgSsid() : "(not set)");
 
   if (netIsConnected()) {

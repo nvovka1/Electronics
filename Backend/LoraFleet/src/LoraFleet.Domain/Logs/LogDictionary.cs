@@ -77,6 +77,8 @@ public static class LogDictionary
         [71] = "tls_insecure",
         [72] = "net_unprovisioned",
         [73] = "net_disabled",
+        [74] = "net_tx_power",
+        [75] = "net_brownout_hold",
         [80] = "ota_check",
         [81] = "ota_available",
         [82] = "ota_refused",
@@ -183,6 +185,7 @@ public static class LogDictionary
         36 => $"{(sbyte)arg} dBm",                                      // ack_rx
         39 => $"{arg} ms",                                              // tx_airtime
         40 or 41 => $"{arg} mV",                                        // lowbat_write_blocked, batt_low
+        42 => arg == 0 ? "no reading taken" : $"{arg} mV, implausible",  // batt_untrusted
         60 => arg == 1 ? "provisioned" : "no ssid or no base url",      // net_cfg_loaded
         61 => NetCfgFieldName((int)arg),                                // net_cfg_changed
         62 or 65 => $"attempt {arg}",                                   // wifi_connecting, wifi_fail
@@ -191,6 +194,8 @@ public static class LogDictionary
         66 => DescribeUnixSeconds(arg),                                 // time_synced
         67 or 68 or 70 or 80 => DescribeHttpStatus(arg),                // report/log/ota http results
         69 => $"{arg} records",                                         // logs_sent
+        74 => $"{arg} dBm",                                             // net_tx_power
+        75 => $"{arg} brownout resets - uplink held off",               // net_brownout_hold
         81 or 83 or 88 => $"{arg:N0} bytes",                            // ota_available/begin/staged
         82 => OtaGateName((int)arg),                                    // ota_refused
         84 => $"{arg}%",                                                // ota_progress

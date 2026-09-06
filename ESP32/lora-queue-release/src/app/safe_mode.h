@@ -26,6 +26,19 @@ bool safeModeActive();
 // cycle or a `reboot` command does not count towards it.
 uint8_t abnormalBootCount();
 
+// Consecutive brownout resets specifically.
+//
+// This one is separated out from the abnormal count because it names its own
+// cure. A brownout is not a software fault: it is the supply failing to deliver
+// what the firmware just asked for, and on this board that is almost always the
+// WiFi transmitter's current spike on a thin USB cable with no battery fitted.
+// Retrying the same thing harder is how a node spends the rest of its life in a
+// reset loop, so the network task reads this and backs off instead.
+//
+// Cleared by a deliberate power cycle and by ten minutes of clean uptime, the
+// same two events that clear the abnormal streak.
+uint8_t brownoutStreak();
+
 // Every boot ever, abnormal or not. This is what `version` prints as
 // "reboots" and what the health frame carries: a silent reboot is otherwise
 // completely invisible.

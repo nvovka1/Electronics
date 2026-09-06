@@ -159,6 +159,8 @@ const char *logCodeName(uint8_t code) {
     case E_TLS_INSECURE: return "tls_insecure";
     case E_NET_UNPROVISIONED: return "net_unprovisioned";
     case E_NET_DISABLED: return "net_disabled";
+    case E_NET_TX_POWER: return "net_tx_power";
+    case E_NET_BROWNOUT_HOLD: return "net_brownout_hold";
     case E_OTA_CHECK: return "ota_check";
     case E_OTA_AVAILABLE: return "ota_available";
     case E_OTA_REFUSED: return "ota_refused";

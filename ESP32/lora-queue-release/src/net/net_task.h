@@ -40,4 +40,10 @@ void netRequestReport();
 // downloads and installs it, subject to every gate in ota.h.
 void netRequestUpdateCheck(bool apply);
 
+// True when repeated brownout resets have made this node stop bringing WiFi up
+// at all for this run of power. The uplink is the largest current draw on the
+// board, so after it has knocked the supply over three times the node keeps
+// itself alive and diagnosable instead of retrying into another reset.
+bool netBrownoutHold();
+
 void netPrintStatus(Print &out);

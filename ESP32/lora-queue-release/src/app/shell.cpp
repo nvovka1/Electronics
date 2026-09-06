@@ -69,7 +69,9 @@ static void cmdVersion(Print &out) {
 
   out.printf("hw_id   %s\n", FW_HW_ID);
   out.printf("post    0x%04X %s\n", postMask(), postMask() ? "FAIL" : "OK");
-  out.printf("uplink  %s", netIsConnected() ? "up" : "down");
+  out.printf("uplink  %s",
+             netBrownoutHold() ? "HELD OFF (brownouts)"
+                               : (netIsConnected() ? "up" : "down"));
   if (netLastCheckInMs())
     out.printf("   last report %lu s ago",
                (unsigned long)((millis() - netLastCheckInMs()) / 1000u));

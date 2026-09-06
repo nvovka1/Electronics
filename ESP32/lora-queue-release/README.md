@@ -145,6 +145,7 @@ Type them into the serial monitor at 115200.
 | `net set <f> <v>` | `ssid` \| `pass` \| `url` \| `key` |
 | `net report` | check in now instead of waiting for `report_period_s` |
 | `net reset` | back to the credentials built into the image |
+| `config set wifi_tx_dbm <n>` | WiFi transmit power, 2..20 dBm — a supply-current setting as much as a range one |
 | `ota` | slots, every gate with its current value, trial state |
 | `ota check` | ask the service what this node should be running |
 | `ota update` | download and install it, gates permitting |

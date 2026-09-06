@@ -3,6 +3,31 @@
 Three lines in plain language per release: what changed, what broke, what
 somebody upgrading has to do.
 
+## v1.1.1 - 2026-09-06
+
+**What changed.** Two things, both about the WiFi transmitter's appetite for
+current. The radio now transmits at 13 dBm instead of the 19.5 it defaults to,
+which roughly halves the peak draw during an association and is ample indoors;
+the level is a new setting, `wifi_tx_dbm`, so a node at the edge of coverage can
+be turned back up without a rebuild. And the node now counts brownout resets
+separately from other abnormal boots: after one it drops to the lowest power the
+radio has and waits five seconds before associating, and after three it stops
+bringing WiFi up at all until somebody power-cycles the board.
+
+**What broke.** Nothing, but one behaviour is worth stating plainly because it
+was a real defect: before this release a board whose supply could not carry the
+transmit burst would brown out, reboot, brown out again, forever. Safe mode did
+not help - it deliberately leaves the uplink on so a crashing node can still be
+cured remotely, which is exactly wrong when the uplink is the cause. The
+brownout hold is the way out of that loop.
+
+**Upgrading.** `cfg_version` goes to 4, migrated automatically from 3, 2 or 1
+with every tuned value carried across. Note the direction of this migration:
+a node coming from v1.1.0 comes back **quieter** than it was, which is the point.
+If a node stops associating after the update, `config set wifi_tx_dbm 17` puts
+it back. The proper fix for a brownout is still a battery or a better cable -
+the firmware can only make the spike smaller, not make the supply bigger.
+
 ## v1.1.0 - 2026-09-06
 
 **What changed.** The node joined a fleet. It associates with WiFi, reports its

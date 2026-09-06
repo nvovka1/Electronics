@@ -80,7 +80,8 @@ enum LogCode : uint8_t {
   // batt 40..49
   E_LOWBAT_WRITE_BLOCKED = 40, // arg = millivolts
   E_BATT_LOW = 41,             // arg = millivolts
-  E_BATT_UNTRUSTED = 42,       // arg = 0; the ADC check failed, gate disabled
+  E_BATT_UNTRUSTED = 42,       // arg = the implausible millivolts read, or 0
+                               // when the gate opened without taking a reading
   // queues 50..59
   E_QUEUE_FULL = 50,        // arg = queue index
   // net 60..79
@@ -98,6 +99,8 @@ enum LogCode : uint8_t {
   E_TLS_INSECURE = 71,         // arg = 0; certificate checking is off on this node
   E_NET_UNPROVISIONED = 72,    // arg = 0; no SSID or no base URL
   E_NET_DISABLED = 73,         // arg = 0; wifi_enabled is 0
+  E_NET_TX_POWER = 74,         // arg = dBm actually applied to the transmitter
+  E_NET_BROWNOUT_HOLD = 75,    // arg = consecutive brownouts; the uplink is off
   // ota 80..99
   E_OTA_CHECK = 80,            // arg = http status; 204 means nothing to do
   E_OTA_AVAILABLE = 81,        // arg = image size in bytes
