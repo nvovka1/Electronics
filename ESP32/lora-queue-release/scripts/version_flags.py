@@ -9,6 +9,7 @@ Wired up from platformio.ini as:  extra_scripts = pre:scripts/version_flags.py
 """
 
 import datetime
+import os
 import subprocess
 
 Import("env")  # noqa: F821  (SCons injects this)
@@ -66,6 +67,20 @@ except ValueError:
 
 stringify = getattr(env, "StringifyMacro", lambda v: '\\"%s\\"' % v)  # noqa: F821
 
+# The hardware id the node reports and the one an update manifest is checked
+# against. Taken from the board definition rather than typed, and taken from the
+# same place scripts/release_manifest.py takes it, because these two strings
+# disagreeing is how a node accepts an image built for a different pinout.
+hw_id = env.BoardConfig().get("build.variant", "unknown")  # noqa: F821
+
+# The fleet API key, if the person doing the build has one in their
+# environment. It is a secret, so it is never in platformio.ini and never in
+# git; a build without it produces an image whose key is empty, and the node is
+# given one in the field with `net set key <key>`.
+api_key = os.environ.get("LORA_FLEET_API_KEY", "")
+if api_key:
+    print("version_flags: baking LORA_FLEET_API_KEY into this image")
+
 env.Append(  # noqa: F821
     CPPDEFINES=[
         ("FW_SEMVER", stringify(semver)),
@@ -73,10 +88,12 @@ env.Append(  # noqa: F821
         ("FW_BUILD_UTC", stringify(build_utc)),
         ("FW_GIT_DIRTY", dirty),
         ("FW_HASH_U32", "0x%08xu" % hash_u32),
+        ("FW_HW_ID", stringify(hw_id)),
     ]
+    + ([("NET_DEFAULT_KEY", stringify(api_key))] if api_key else [])
 )
 
 print(
-    "version_flags: %s+%s%s  built %s"
-    % (semver, git_hash, "-dirty" if dirty else "", build_utc)
+    "version_flags: %s+%s%s  built %s  hw %s"
+    % (semver, git_hash, "-dirty" if dirty else "", build_utc, hw_id)
 )

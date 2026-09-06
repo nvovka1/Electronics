@@ -22,6 +22,14 @@ it works inside; that is what the other documents are for.
 | Two nodes answer to the same id | `version` on each | Both fell back to a MAC-derived id and collided, or one was set by hand. `config set node_id <n>` on one of them; the range is 1–999. |
 | Battery reading looks wrong or shows `?` | `self-test`, check bit 0 (`power`) and bit 2 (`adc`) | Both set → the sense divider is missing or the ADC is stuck; the low-power write gate is disabled on purpose so a broken sensor cannot lock you out. Bit 0 only → the pack really is outside 3.0–4.6 V. |
 | Settings reverted after a power cut | `config get`, compare `cfg_seq` with what it was | Working as designed: the write was interrupted and the previous complete record was kept. Repeat the change on a stable supply. `log dump` will show `cfg_slot_bad`. |
+| Node never appears on the fleet site | `net` | `link down` → SSID or password; `net show` confirms one is set and how long it is. `clock not synced` → HTTPS refuses to run, because a certificate cannot be judged without a date; check the network allows NTP outbound. `last ok never` with the link up → the API key, see the next row. |
+| `net` shows the link up but `last ok never` | `log dump 20`, look for `report_fail` | Arg `401` → the API key is wrong or absent; `net set key <key>`. Arg `no link, no credentials, or no clock for TLS` → `net show` and check `url` is set and starts with `https://`. Arg a read timeout → the service is asleep on a free hosting plan; it wakes in tens of seconds, so wait one more report period before treating it as a fault. |
+| Reporting stopped after the service changed hosting | `log dump`, look for `report_fail` after a working period | The pinned TLS root no longer matches the chain. `config set tls_verify 0` restores reporting immediately and logs `tls_insecure` on every connection so the state cannot be forgotten. Fix it properly by rebuilding with the new root in `src/net/root_ca.h`. |
+| The screen header shows `U` and nothing happens | `ota` | Read the gate it names. `battery below ota_vbat_min_mv` and `already failed its trial` are the two common ones. `ota_enabled is 0` means somebody turned updates off on this node. |
+| A node keeps reverting to the old version | `log dump 30`, find `ota_rollback` | Reason `1` → it never checked in during the trial: the new image cannot reach the service, so look at `net` on it while it is briefly running. Reason `2` → a critical POST block failed on the new image, which is a genuine regression: withdraw that version from the service. Reason `3` → somebody typed `ota rollback`. |
+| The site offers a version the node refuses | `ota`, read the `blocked` line | That version already failed its trial on this node and will not be installed again until a different one is confirmed. Deliberate — it is what stops a bad release flattening every battery in the fleet. Publish a fixed version with a new number. |
+| `version` says `ON TRIAL` and stays that way | `ota` for the countdown | The node has not managed a successful check-in yet. If it is fine and you are standing in front of it, `ota confirm` keeps it. Do nothing and it reverts when the window expires — which is the intended behaviour, not a fault. |
+| `ota rollback` answers there is no previous image | `ota`, compare `running` and `target` | This node has never been updated over the air, so the other slot has never held a working image. A cable is the only way back. |
 | `log dump` shows nothing useful | `log level` | The runtime level may be too low. `config set log_level 4` for DEBUG. Note that a **field** image contains no DEBUG or TRACE at all — they are not compiled in — so raising the level above 2 there changes nothing. Use the dev image to investigate. |
 
 ---
@@ -34,6 +42,8 @@ it works inside; that is what the other documents are for.
 4. `radio` — link settings and counters.
 5. `config get` — the full settings dump.
 6. `frames` — the last frame in and out, in hex.
+7. `net` and `ota` — if the problem is anything to do with reporting or
+   updating. Between them they name the exact gate or the exact HTTP status.
 
 Plus the `firmware.elf` and `firmware.map` of the build named by `version`.
 Without them, a program counter from a panic is just a number.

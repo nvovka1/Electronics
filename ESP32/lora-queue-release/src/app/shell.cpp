@@ -7,11 +7,16 @@
 #include "core/log.h"
 #include "core/post.h"
 #include "core/version.h"
+#include "core/netcfg.h"
 #include "hal/battery.h"
+#include "net/net_task.h"
+#include "net/ota.h"
 #include "tasks/radio_task.h"
 #include "tasks/ui_task.h"
 
-static constexpr size_t SHELL_LINE_MAX = 96;
+// A base URL can be 96 characters on its own, and `net set url ` costs another
+// twelve. A truncated URL that still parses is far worse than a refused line.
+static constexpr size_t SHELL_LINE_MAX = 160;
 static constexpr uint8_t SHELL_ARG_MAX = 4;
 
 static char s_line[SHELL_LINE_MAX];
@@ -62,7 +67,19 @@ static void cmdVersion(Print &out) {
   if (safeModeActive()) out.print("   SAFE MODE");
   out.println();
 
+  out.printf("hw_id   %s\n", FW_HW_ID);
   out.printf("post    0x%04X %s\n", postMask(), postMask() ? "FAIL" : "OK");
+  out.printf("uplink  %s", netIsConnected() ? "up" : "down");
+  if (netLastCheckInMs())
+    out.printf("   last report %lu s ago",
+               (unsigned long)((millis() - netLastCheckInMs()) / 1000u));
+  if (netUpdateAvailable()) out.printf("   UPDATE %s AVAILABLE", netTargetVersion());
+  out.println();
+
+  if (otaIsOnTrial())
+    out.printf("ota     ON TRIAL - this image reverts in %lu s unless it checks "
+               "in (`ota confirm` to keep it)\n",
+               (unsigned long)otaTrialSecondsLeft());
   out.printf("cfg     v%u  seq %lu  slot %s", config().cfg_version,
              (unsigned long)configSeq(), cfg_slot_name(configSlot()));
   if (migrated) out.printf("  (migrated from v%u)", migratedFrom);
@@ -205,6 +222,107 @@ static void cmdLog(Print &out, char **argv, uint8_t argc) {
   }
 }
 
+static void cmdNet(Print &out, char **argv, uint8_t argc) {
+  if (argc < 2) {
+    netPrintStatus(out);
+    return;
+  }
+
+  if (strcmp(argv[1], "show") == 0) {
+    netcfgPrint(out);
+    return;
+  }
+
+  if (strcmp(argv[1], "report") == 0) {
+    netRequestReport();
+    out.println("OK  check-in requested; it runs on the next pass of the net task");
+    return;
+  }
+
+  if (strcmp(argv[1], "reset") == 0) {
+    const netcfg_set_result_t r = netcfgReset();
+    out.printf("%s %s\n", r == NETCFG_SET_OK ? "OK " : "ERR",
+               r == NETCFG_SET_OK ? "back to the credentials this image was built with"
+                                  : netcfgSetResultText(r));
+    return;
+  }
+
+  if (strcmp(argv[1], "set") == 0) {
+    if (argc < 4) {
+      out.println("usage: net set ssid|pass|url|key <value>");
+      return;
+    }
+
+    const netcfg_set_result_t r = netcfgSet(argv[2], argv[3]);
+    switch (r) {
+      case NETCFG_SET_OK:
+        // The value is not echoed: two of these four are secrets and a serial
+        // session ends up pasted into a ticket.
+        out.printf("OK  %s written (%u chars); it applies on the next check-in\n",
+                   argv[2], (unsigned)strlen(argv[3]));
+        if (strcmp(argv[2], "ssid") == 0 || strcmp(argv[2], "pass") == 0)
+          out.println("    the current association is kept until it drops");
+        break;
+      case NETCFG_SET_LOW_POWER:
+        out.printf("ERR power: vbat %u mV < %u mV, refusing flash write\n",
+                   configLastRefusedMillivolts(), config().vbat_min_mv);
+        break;
+      case NETCFG_SET_INVALID:
+        out.println("ERR the base url must start with http:// or https://");
+        break;
+      default:
+        out.printf("ERR %s\n", netcfgSetResultText(r));
+        break;
+    }
+    return;
+  }
+
+  out.printf("ERR unknown subcommand: %s\n", argv[1]);
+}
+
+static void cmdOta(Print &out, char **argv, uint8_t argc) {
+  if (argc < 2) {
+    otaPrint(out);
+    return;
+  }
+
+  if (strcmp(argv[1], "check") == 0) {
+    netRequestUpdateCheck(false);
+    out.println("OK  asking the fleet service what this node should be running");
+    return;
+  }
+
+  if (strcmp(argv[1], "update") == 0) {
+    netRequestUpdateCheck(true);
+    out.println("OK  update requested. It still has to pass every gate: battery");
+    out.println("    above ota_vbat_min_mv, matching hardware id, a slot big");
+    out.println("    enough, and a SHA-256 that matches the manifest.");
+    return;
+  }
+
+  if (strcmp(argv[1], "confirm") == 0) {
+    if (!otaIsOnTrial()) {
+      out.println("ERR this image is not on trial; there is nothing to confirm");
+      return;
+    }
+    out.println(otaConfirmNow() ? "OK  image confirmed; it will not be rolled back"
+                                : "ERR the bootloader refused to confirm it");
+    return;
+  }
+
+  if (strcmp(argv[1], "rollback") == 0) {
+    out.println("OK  going back to the previous image; the node reboots now");
+    out.flush();
+    // Returns only if there is no previous image to go back to.
+    if (!otaRollbackNow(OTA_ROLLBACK_OPERATOR))
+      out.println("ERR no previous image in the other slot - this node has never "
+                  "been updated over the air");
+    return;
+  }
+
+  out.printf("ERR unknown subcommand: %s\n", argv[1]);
+}
+
 static void cmdSelfTest(Print &out) {
   const uint16_t mask = postRun();
   postPrint(out);
@@ -239,6 +357,16 @@ void shellPrintBanner(Print &out) {
   out.println("  config get           every setting with its bounds");
   out.println("  config set <k> <v>   validated, then saved, then applied");
   out.println("  config reset         firmware defaults; keeps id and calibration");
+  out.println("  net                  link, clock, service and last check-in");
+  out.println("  net show             the four credentials (secrets are masked)");
+  out.println("  net set <f> <v>      ssid | pass | url | key");
+  out.println("  net report           check in now instead of at the next period");
+  out.println("  net reset            back to the credentials built into the image");
+  out.println("  ota                  slots, gates and trial state");
+  out.println("  ota check            ask the service what this node should run");
+  out.println("  ota update           download and install it, gates permitting");
+  out.println("  ota confirm          keep an image that is still on trial");
+  out.println("  ota rollback         go back to the previous image");
 #if BUILD_TEST_COMMANDS
   out.println("  config seed_v1       [test] write a v1 record to show migration");
   out.println("  crash                [test] force a panic to exercise the handler");
@@ -285,6 +413,10 @@ static void dispatch(Print &out, char *line) {
     cmdLog(out, argv, argc);
   } else if (strcmp(argv[0], "config") == 0) {
     cmdConfig(out, argv, argc);
+  } else if (strcmp(argv[0], "net") == 0) {
+    cmdNet(out, argv, argc);
+  } else if (strcmp(argv[0], "ota") == 0) {
+    cmdOta(out, argv, argc);
   } else if (strcmp(argv[0], "screen") == 0) {
     cmdScreen(out, argv, argc);
   } else if (strcmp(argv[0], "reboot") == 0) {

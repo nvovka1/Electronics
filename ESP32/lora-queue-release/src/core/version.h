@@ -33,6 +33,14 @@
 #define FW_BUILD_TYPE "unknown"
 #endif
 
+// The board variant, straight from the board definition. An update manifest is
+// refused unless its hardware id matches this exactly: an image built for a
+// neighbouring revision has different pin assignments, and on these PICO-D4
+// modules one of those pins is the embedded flash chip select.
+#ifndef FW_HW_ID
+#define FW_HW_ID "unknown"
+#endif
+
 #ifndef PROTO_VERSION
 #define PROTO_VERSION 1
 #endif

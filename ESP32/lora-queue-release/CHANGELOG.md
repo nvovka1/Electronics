@@ -3,6 +3,38 @@
 Three lines in plain language per release: what changed, what broke, what
 somebody upgrading has to do.
 
+## v1.1.0 - 2026-09-06
+
+**What changed.** The node joined a fleet. It associates with WiFi, reports its
+health and its ring log to the LoraFleet service every `report_period_s`, and
+can install a firmware image the service assigns it. The update is built so a
+bad image comes back: the running slot is never the one written, every byte is
+SHA-256 checked before the boot slot is switched, and a new image is on trial
+for ten minutes afterwards - it keeps its place only by passing a clean critical
+POST and checking in with the service, and the bootloader reverts it on its own
+if it cannot even get that far. `config` gained five settings and `cfg_version`
+went to 3; the WiFi and service credentials live in a separate NVS namespace
+because they are provisioning rather than tuning, and because growing the A/B
+config record would have made every existing node fall back to defaults. New
+commands: `net`, `net show|set|report|reset`, `ota`, `ota check|update|confirm
+|rollback`. The screen carries an uplink indicator and, during an update, the
+node number, both version numbers, a progress bar and the battery.
+
+**What broke.** Nothing on the air - the LoRa protocol is untouched at `VER 1`.
+Two things to know before flashing: the image went from 26 % to 78 % of an
+application slot, because WiFi, TLS and HTTP are most of it; and `verifyRollback
+Later()` is now overridden, so an image installed over the air that never
+confirms itself will be reverted on its next reboot. That is the point, but it
+means a future release must never remove the confirmation path without removing
+the override with it.
+
+**Upgrading.** Flash by cable once, from v1.0.0 - a v1.0.0 node has no OTA
+client to reach. Existing settings survive: the stored v2 record is migrated to
+v3 on the first boot and every tuned value is carried across by name, with the
+five new fields taking the firmware's defaults. The uplink comes up enabled but
+finds nothing to talk to until the node is given an API key with `net set key`.
+Rolling back to v1.0.0 means a cable, and it means the node stops reporting.
+
 ## v1.0.0 — 2026-09-05
 
 **What changed.** The demo became firmware that can be deployed. A `version`

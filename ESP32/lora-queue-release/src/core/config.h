@@ -47,6 +47,12 @@ cfg_set_result_t configReset();
 
 const char *configSetResultText(cfg_set_result_t r);
 
+// The anti-brick gate, shared with everything else that writes flash.
+// True when the pack has enough left to survive an erase/write cycle - or when
+// the battery reading is not trustworthy, because refusing on a number we do
+// not believe would lock an operator out of a device over a broken sensor.
+bool configPowerAllowsWrite();
+
 // Millivolts read at the last refused write, so the refusal can say why.
 uint16_t configLastRefusedMillivolts();
 

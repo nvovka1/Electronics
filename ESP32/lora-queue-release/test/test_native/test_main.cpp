@@ -210,8 +210,15 @@ static void test_config_struct_layout_is_stable(void) {
   // cfg_version must stay at offset 4 in every one of them.
   TEST_ASSERT_EQUAL_size_t(16, sizeof(config_v1_t));
   TEST_ASSERT_EQUAL_size_t(20, sizeof(config_v2_t));
+  TEST_ASSERT_EQUAL_size_t(28, sizeof(config_v3_t));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v1_t, cfg_version));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v2_t, cfg_version));
+  TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v3_t, cfg_version));
+
+  // Every version has to fit the container it is stored in, and the check
+  // belongs here rather than in a comment: the day a v4 outgrows the blob is
+  // the day every node in the field silently falls back to defaults.
+  TEST_ASSERT_TRUE(sizeof(config_t) <= CFG_BLOB_MAX);
 }
 
 static void test_config_defaults_validate(void) {
@@ -286,7 +293,7 @@ static config_v1_t make_v1(void) {
 
 static void test_migrate_1_2_carries_old_and_defaults_new(void) {
   const config_v1_t v1 = make_v1();
-  config_t v2;
+  config_v2_t v2;
   config_migrate_1_2(&v1, &v2);
 
   // Carried across by name, never by memcpy.
@@ -305,17 +312,105 @@ static void test_migrate_1_2_carries_old_and_defaults_new(void) {
   TEST_ASSERT_EQUAL_UINT16(3300, v2.vbat_min_mv);
 
   TEST_ASSERT_EQUAL_UINT16(2, v2.cfg_version);
+}
+
+static void test_migrate_2_3_carries_old_and_defaults_new(void) {
+  config_v2_t v2;
+  memset(&v2, 0, sizeof(v2));
+  v2.cfg_version = 2;
+  v2.freq_hz = 869500000u;
+  v2.node_id = 42;
+  v2.health_period_s = 900;
+  v2.ack_timeout_ms = 1200;
+  v2.vbat_min_mv = 3400;
+  v2.log_level = 2;
+  v2.tx_power = 17;
+  v2.spreading = 10;
+  v2.coding_rate = 8;
+  v2.sync_word = 0x77;
+  v2.ack_retries = 5;
+
+  config_v3_t v3;
+  config_migrate_2_3(&v2, &v3);
+
+  // Every field v2 knew arrives with the operator's value, not a default.
+  // This is the whole point of the hop: a node that was tuned for a difficult
+  // site must not come back from an update on factory settings.
+  TEST_ASSERT_EQUAL_UINT32(869500000u, v3.freq_hz);
+  TEST_ASSERT_EQUAL_UINT16(42, v3.node_id);
+  TEST_ASSERT_EQUAL_UINT16(900, v3.health_period_s);
+  TEST_ASSERT_EQUAL_UINT16(1200, v3.ack_timeout_ms);
+  TEST_ASSERT_EQUAL_UINT16(3400, v3.vbat_min_mv);
+  TEST_ASSERT_EQUAL_UINT8(2, v3.log_level);
+  TEST_ASSERT_EQUAL_UINT8(17, v3.tx_power);
+  TEST_ASSERT_EQUAL_UINT8(10, v3.spreading);
+  TEST_ASSERT_EQUAL_UINT8(8, v3.coding_rate);
+  TEST_ASSERT_EQUAL_UINT8(0x77, v3.sync_word);
+  TEST_ASSERT_EQUAL_UINT8(5, v3.ack_retries);
+
+  // The five fields v2 had never heard of come from the firmware's defaults.
+  TEST_ASSERT_EQUAL_UINT8(1, v3.wifi_enabled);
+  TEST_ASSERT_EQUAL_UINT16(300, v3.report_period_s);
+  TEST_ASSERT_EQUAL_UINT8(1, v3.tls_verify);
+  TEST_ASSERT_EQUAL_UINT8(1, v3.ota_enabled);
+  TEST_ASSERT_EQUAL_UINT16(3600, v3.ota_vbat_min_mv);
+
+  // The OTA gate must sit above the config-write gate. An update that is
+  // allowed on a cell too flat to finish it is the brick this whole scheme
+  // exists to prevent.
+  TEST_ASSERT_TRUE(v3.ota_vbat_min_mv > v3.vbat_min_mv);
+
+  TEST_ASSERT_EQUAL_UINT16(3, v3.cfg_version);
 
   const char *bad = nullptr;
-  TEST_ASSERT_EQUAL_INT(0, config_validate(&v2, &bad));
+  TEST_ASSERT_EQUAL_INT(0, config_validate(&v3, &bad));
 }
 
 static void test_migrate_chain_from_blob(void) {
+  // A node that has been in a drawer since fw 1.0.0: its record is v1 and it
+  // has to walk 1 -> 2 -> 3 in one boot, carrying its settings the whole way.
   const config_v1_t v1 = make_v1();
   config_t out;
   TEST_ASSERT_EQUAL_INT(0, config_migrate(&v1, sizeof(v1), 1, &out));
   TEST_ASSERT_EQUAL_UINT16(CFG_VERSION_CURRENT, out.cfg_version);
   TEST_ASSERT_EQUAL_UINT8(11, out.tx_power);
+  TEST_ASSERT_EQUAL_UINT16(120, out.health_period_s); // survived two hops
+  TEST_ASSERT_EQUAL_UINT16(7, out.node_id);
+
+  // And it arrives with the uplink configured, which is what makes the
+  // update reach it next time without anyone driving out.
+  TEST_ASSERT_EQUAL_UINT8(1, out.wifi_enabled);
+  TEST_ASSERT_EQUAL_UINT16(300, out.report_period_s);
+
+  const char *bad = nullptr;
+  TEST_ASSERT_EQUAL_INT(0, config_validate(&out, &bad));
+}
+
+static void test_migrate_2_3_from_blob(void) {
+  // The hop an existing fleet actually takes on this release.
+  config_v2_t v2;
+  memset(&v2, 0, sizeof(v2));
+  v2.cfg_version = 2;
+  v2.freq_hz = 868000000u;
+  v2.node_id = 3;
+  v2.health_period_s = 60;
+  v2.ack_timeout_ms = 600;
+  v2.vbat_min_mv = 3300;
+  v2.log_level = 3;
+  v2.tx_power = 20;
+  v2.spreading = 7;
+  v2.coding_rate = 5;
+  v2.sync_word = 0x2B;
+  v2.ack_retries = 3;
+
+  config_t out;
+  TEST_ASSERT_EQUAL_INT(0, config_migrate(&v2, sizeof(v2), 2, &out));
+  TEST_ASSERT_EQUAL_UINT16(CFG_VERSION_CURRENT, out.cfg_version);
+  TEST_ASSERT_EQUAL_UINT8(20, out.tx_power);
+
+  // A v2-sized blob that claims to be v1 is refused rather than read as one.
+  config_t ignored;
+  TEST_ASSERT_EQUAL_INT(-1, config_migrate(&v2, sizeof(v2), 1, &ignored));
 }
 
 static void test_migrate_passes_current_version_through(void) {
@@ -496,7 +591,9 @@ int main(int, char **) {
   RUN_TEST(test_config_validate_names_the_offender);
 
   RUN_TEST(test_migrate_1_2_carries_old_and_defaults_new);
+  RUN_TEST(test_migrate_2_3_carries_old_and_defaults_new);
   RUN_TEST(test_migrate_chain_from_blob);
+  RUN_TEST(test_migrate_2_3_from_blob);
   RUN_TEST(test_migrate_passes_current_version_through);
   RUN_TEST(test_migrate_refuses_wrong_size_and_future_version);
 

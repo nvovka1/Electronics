@@ -23,7 +23,7 @@ public static class LogDictionary
     private static readonly Dictionary<byte, string> Tags = new()
     {
         [0] = "sys", [1] = "post", [2] = "cfg", [3] = "radio",
-        [4] = "ui", [5] = "key", [6] = "batt",
+        [4] = "ui", [5] = "key", [6] = "batt", [7] = "net", [8] = "ota",
     };
 
     private static readonly Dictionary<byte, string> Codes = new()
@@ -63,6 +63,78 @@ public static class LogDictionary
         [41] = "batt_low",
         [42] = "batt_untrusted",
         [50] = "queue_full",
+        [60] = "net_cfg_loaded",
+        [61] = "net_cfg_changed",
+        [62] = "wifi_connecting",
+        [63] = "wifi_up",
+        [64] = "wifi_down",
+        [65] = "wifi_fail",
+        [66] = "time_synced",
+        [67] = "report_ok",
+        [68] = "report_fail",
+        [69] = "logs_sent",
+        [70] = "logs_fail",
+        [71] = "tls_insecure",
+        [72] = "net_unprovisioned",
+        [73] = "net_disabled",
+        [80] = "ota_check",
+        [81] = "ota_available",
+        [82] = "ota_refused",
+        [83] = "ota_begin",
+        [84] = "ota_progress",
+        [85] = "ota_hash_mismatch",
+        [86] = "ota_write_fail",
+        [87] = "ota_download_fail",
+        [88] = "ota_staged",
+        [89] = "ota_trial",
+        [90] = "ota_confirmed",
+        [91] = "ota_rollback",
+        [92] = "ota_blocked",
+    };
+
+    /// <summary>
+    /// Which precondition refused an update. Mirrors ota_gate_t in the
+    /// firmware's src/net/ota.h - the numbers are positional, so inserting one
+    /// there without inserting it here renames every refusal after it.
+    /// </summary>
+    private static readonly Dictionary<int, string> OtaGates = new()
+    {
+        [0] = "ok",
+        [1] = "ota_enabled is 0",
+        [2] = "this image is still on trial itself",
+        [3] = "battery below ota_vbat_min_mv",
+        [4] = "the ADC self-test failed, so the battery reading means nothing",
+        [5] = "the image is built for a different board",
+        [6] = "already running this version",
+        [7] = "the image does not fit the inactive slot",
+        [8] = "not enough free heap",
+        [9] = "this version already failed its trial on this node",
+        [10] = "no usable manifest",
+    };
+
+    private static readonly Dictionary<int, string> OtaRollbackReasons = new()
+    {
+        [1] = "never checked in during the trial window",
+        [2] = "a critical POST block failed on the new image",
+        [3] = "an operator asked for it",
+    };
+
+    /// <summary>
+    /// The credential fields, in the order netcfg_field_t declares them. Only
+    /// the index is ever logged - two of the four are secrets and the ring log
+    /// leaves the device.
+    /// </summary>
+    private static readonly Dictionary<int, string> NetCfgFields = new()
+    {
+        [0] = "ssid", [1] = "password", [2] = "base url", [3] = "api key",
+    };
+
+    /// <summary>WiFi.status(), which is wl_status_t in the Arduino core.</summary>
+    private static readonly Dictionary<int, string> WifiStatus = new()
+    {
+        [0] = "idle", [1] = "no ssid available", [2] = "scan completed",
+        [3] = "connected", [4] = "connect failed", [5] = "connection lost",
+        [6] = "disconnected",
     };
 
     private static readonly Dictionary<int, string> ResetReasons = new()
@@ -111,8 +183,61 @@ public static class LogDictionary
         36 => $"{(sbyte)arg} dBm",                                      // ack_rx
         39 => $"{arg} ms",                                              // tx_airtime
         40 or 41 => $"{arg} mV",                                        // lowbat_write_blocked, batt_low
+        60 => arg == 1 ? "provisioned" : "no ssid or no base url",      // net_cfg_loaded
+        61 => NetCfgFieldName((int)arg),                                // net_cfg_changed
+        62 or 65 => $"attempt {arg}",                                   // wifi_connecting, wifi_fail
+        63 => DescribeIPv4(arg),                                        // wifi_up
+        64 => WifiStatusName((int)arg),                                 // wifi_down
+        66 => DescribeUnixSeconds(arg),                                 // time_synced
+        67 or 68 or 70 or 80 => DescribeHttpStatus(arg),                // report/log/ota http results
+        69 => $"{arg} records",                                         // logs_sent
+        81 or 83 or 88 => $"{arg:N0} bytes",                            // ota_available/begin/staged
+        82 => OtaGateName((int)arg),                                    // ota_refused
+        84 => $"{arg}%",                                                // ota_progress
+        85 or 87 => $"{arg:N0} bytes in",                               // hash mismatch, download fail
+        90 => $"after {arg} s of uptime",                               // ota_confirmed
+        91 => OtaRollbackReasonName((int)arg),                          // ota_rollback
         _ => arg.ToString(),
     };
+
+    /// <summary>
+    /// The firmware sends its own negative client errors as well as HTTP
+    /// statuses, and -1 rendered bare is the least useful thing in a log.
+    /// </summary>
+    private static string DescribeHttpStatus(long arg) => arg switch
+    {
+        204 => "204 nothing to do",
+        >= 200 and < 300 => $"{arg} ok",
+        -1000 => "no link, no credentials, or no clock for TLS",
+        -1001 => "unusable response",
+        -1 => "connection refused",
+        -5 => "connection lost",
+        -11 => "read timeout",
+        < 0 => $"client error {arg}",
+        _ => $"HTTP {arg}",
+    };
+
+    /// <summary>
+    /// The node has no RTC, so this is the one log line that carries real
+    /// wall-clock time: the moment SNTP first answered.
+    /// </summary>
+    private static string DescribeUnixSeconds(long arg) =>
+        arg <= 0 ? "not synced" : DateTimeOffset.FromUnixTimeSeconds(arg).UtcDateTime.ToString("u");
+
+    private static string DescribeIPv4(long arg) =>
+        $"{arg & 0xFF}.{(arg >> 8) & 0xFF}.{(arg >> 16) & 0xFF}.{(arg >> 24) & 0xFF}";
+
+    private static string NetCfgFieldName(int index) =>
+        NetCfgFields.TryGetValue(index, out var name) ? name : $"field {index}";
+
+    private static string WifiStatusName(int status) =>
+        WifiStatus.TryGetValue(status, out var name) ? name : $"status {status}";
+
+    private static string OtaGateName(int gate) =>
+        OtaGates.TryGetValue(gate, out var name) ? name : $"gate {gate}";
+
+    private static string OtaRollbackReasonName(int reason) =>
+        OtaRollbackReasons.TryGetValue(reason, out var name) ? name : $"reason {reason}";
 
     /// <summary>cfg_loaded and cfg_saved pack the slot index into the top byte.</summary>
     private static string SlotName(long packed) => SlotFromIndex((packed >> 24) & 0xFF);

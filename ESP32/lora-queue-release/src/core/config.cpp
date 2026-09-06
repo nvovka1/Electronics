@@ -155,7 +155,7 @@ bool configWasMigrated(uint16_t &fromVersion) {
 // does, and doing it on a flat pack is how a device stops coming back. The
 // same rule that forbids OTA below 40% forbids a config write below the
 // configured floor.
-static bool powerAllowsWrite() {
+bool configPowerAllowsWrite() {
   if (!batteryTrusted()) {
     // The ADC self-test failed, so the reading means nothing. Refusing on a
     // number we do not believe would lock the operator out of the device over
@@ -186,7 +186,7 @@ cfg_set_result_t configSet(const char *key, uint32_t value, uint32_t &oldValue) 
   const char *bad = nullptr;
   if (config_validate(&candidate, &bad) != 0) return CFG_SET_OUT_OF_RANGE;
 
-  if (!powerAllowsWrite()) return CFG_SET_LOW_POWER;
+  if (!configPowerAllowsWrite()) return CFG_SET_LOW_POWER;
 
   const config_t previous = s_cfg;
   s_cfg = candidate;
@@ -207,7 +207,7 @@ cfg_set_result_t configSet(const char *key, uint32_t value, uint32_t &oldValue) 
 }
 
 cfg_set_result_t configReset() {
-  if (!powerAllowsWrite()) return CFG_SET_LOW_POWER;
+  if (!configPowerAllowsWrite()) return CFG_SET_LOW_POWER;
 
   const config_t previous = s_cfg;
 

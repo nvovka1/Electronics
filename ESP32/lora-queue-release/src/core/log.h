@@ -33,7 +33,9 @@ enum LogTag : uint8_t {
   TAG_UI = 4,
   TAG_KEY = 5,
   TAG_BATT = 6,
-  TAG_COUNT = 7,
+  TAG_NET = 7,
+  TAG_OTA = 8,
+  TAG_COUNT = 9,
 };
 
 // Event codes. These are the protocol between the firmware and
@@ -81,6 +83,35 @@ enum LogCode : uint8_t {
   E_BATT_UNTRUSTED = 42,       // arg = 0; the ADC check failed, gate disabled
   // queues 50..59
   E_QUEUE_FULL = 50,        // arg = queue index
+  // net 60..79
+  E_NET_CFG_LOADED = 60,       // arg = 1 when an SSID and a base URL are set
+  E_NET_CFG_CHANGED = 61,      // arg = field index; never the value, two are secrets
+  E_WIFI_CONNECTING = 62,      // arg = attempt number
+  E_WIFI_UP = 63,              // arg = IPv4 address, host order
+  E_WIFI_DOWN = 64,            // arg = wl_status_t
+  E_WIFI_FAIL = 65,            // arg = consecutive failed associations
+  E_TIME_SYNCED = 66,          // arg = unix seconds; TLS cannot judge a cert without it
+  E_REPORT_OK = 67,            // arg = http status
+  E_REPORT_FAIL = 68,          // arg = http status, or a negative HTTPClient error
+  E_LOGS_SENT = 69,            // arg = records accepted
+  E_LOGS_FAIL = 70,            // arg = http status
+  E_TLS_INSECURE = 71,         // arg = 0; certificate checking is off on this node
+  E_NET_UNPROVISIONED = 72,    // arg = 0; no SSID or no base URL
+  E_NET_DISABLED = 73,         // arg = 0; wifi_enabled is 0
+  // ota 80..99
+  E_OTA_CHECK = 80,            // arg = http status; 204 means nothing to do
+  E_OTA_AVAILABLE = 81,        // arg = image size in bytes
+  E_OTA_REFUSED = 82,          // arg = ota_gate_t: which precondition said no
+  E_OTA_BEGIN = 83,            // arg = image size in bytes
+  E_OTA_PROGRESS = 84,         // arg = percent complete
+  E_OTA_HASH_MISMATCH = 85,    // arg = bytes written before the hash disagreed
+  E_OTA_WRITE_FAIL = 86,       // arg = UpdateClass error code
+  E_OTA_DOWNLOAD_FAIL = 87,    // arg = bytes received before the stream stopped
+  E_OTA_STAGED = 88,           // arg = size; written and verified, boot slot switched
+  E_OTA_TRIAL = 89,            // arg = 0; this image is on probation
+  E_OTA_CONFIRMED = 90,        // arg = uptime in seconds when it earned its place
+  E_OTA_ROLLBACK = 91,         // arg = ota_rollback_reason_t
+  E_OTA_BLOCKED = 92,          // arg = 0; this version already failed its trial once
 };
 
 // Every level a call site can use gets its own macro, and the ones above
@@ -136,6 +167,12 @@ uint8_t logGetLevel();
 
 uint16_t logCount();
 uint32_t logDropped();
+
+// Total records ever pushed, which keeps counting past the ring's capacity.
+// This is the cursor the uplink uses: it says which records are new since the
+// last successful upload without the uploader having to remember any of them,
+// and it makes a gap visible rather than silently closing it.
+uint32_t logPushed();
 bool logPeek(uint16_t index, log_rec_t &out); // 0 = newest
 void logClear();
 

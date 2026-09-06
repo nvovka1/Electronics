@@ -22,6 +22,14 @@ const cfg_field_t CFG_FIELDS[] = {
     {"ack_timeout_ms", CFG_U16, F(ack_timeout_ms), 100, 5000, "ms", 1},
     {"ack_retries", CFG_U8, F(ack_retries), 0, 5, "", 1},
     {"vbat_min_mv", CFG_U16, F(vbat_min_mv), 3000, 4200, "mV", 1},
+    {"wifi_enabled", CFG_U8, F(wifi_enabled), 0, 1, "", 0},
+    // Six hours is the ceiling because the field is a uint16_t and because a
+    // node heard from less often than that is not a managed node. It is also
+    // the worst case for how long an update takes to reach the fleet.
+    {"report_period_s", CFG_U16, F(report_period_s), 30, 21600, "s", 1},
+    {"tls_verify", CFG_U8, F(tls_verify), 0, 1, "", 0},
+    {"ota_enabled", CFG_U8, F(ota_enabled), 0, 1, "", 1},
+    {"ota_vbat_min_mv", CFG_U16, F(ota_vbat_min_mv), 3300, 4200, "mV", 1},
 };
 
 const size_t CFG_FIELD_COUNT = sizeof(CFG_FIELDS) / sizeof(CFG_FIELDS[0]);
@@ -43,6 +51,19 @@ void config_defaults(config_t *out, uint16_t node_id) {
   // node in range is heard and rendered as if it were ours.
   out->sync_word = 0x2B;
   out->ack_retries = 3;
+
+  out->wifi_enabled = 1;
+  // Five minutes, not one. A check-in is a WiFi association, a TLS handshake
+  // and two POSTs; at one a minute the radio is awake most of the time and the
+  // fleet service is answering 1440 requests a day per node for facts that
+  // change hourly.
+  out->report_period_s = 300;
+  out->tls_verify = 1;
+  out->ota_enabled = 1;
+  // 3.6 V, well above the 3.3 V a config write needs. An OTA writes a third of
+  // a megabyte and then reboots into an image that has never run: the one
+  // moment in this device's life where a flat cell turns a bug into a brick.
+  out->ota_vbat_min_mv = 3600;
 }
 
 const cfg_field_t *config_field_by_name(const char *name) {
@@ -125,13 +146,33 @@ int config_validate(const config_t *c, const char **bad_field) {
 
 // --- migrations -----------------------------------------------------------
 
-void config_migrate_1_2(const config_v1_t *in, config_t *out) {
+static void defaults_v2(config_v2_t *out, uint16_t node_id) {
+  // The v2 defaults as fw 1.0.0 shipped them, frozen. They must not follow
+  // config_defaults() forward: a v1 record migrating today has to arrive at
+  // the v2 this firmware's 2->3 hop expects, not at whatever v4 will call a
+  // default.
+  memset(out, 0, sizeof(*out));
+  out->cfg_version = 2;
+  out->node_id = node_id;
+  out->freq_hz = 868000000u;
+  out->health_period_s = 60;
+  out->ack_timeout_ms = 600;
+  out->vbat_min_mv = 3300;
+  out->log_level = 3;
+  out->tx_power = 14;
+  out->spreading = 7;
+  out->coding_rate = 5;
+  out->sync_word = 0x2B;
+  out->ack_retries = 3;
+}
+
+void config_migrate_1_2(const config_v1_t *in, config_v2_t *out) {
   if (!in || !out) return;
 
-  // Start from the firmware's defaults, then overwrite what v1 actually knew.
-  // A new field therefore takes its value from the code, never a zero out of
-  // flash — zero is reliably the worst possible setting.
-  config_defaults(out, in->node_id);
+  // Start from the version's own defaults, then overwrite what v1 actually
+  // knew. A new field therefore takes its value from the code, never a zero
+  // out of flash — zero is reliably the worst possible setting.
+  defaults_v2(out, in->node_id);
 
   out->freq_hz = in->freq_hz;
   out->log_level = in->log_level;
@@ -142,18 +183,57 @@ void config_migrate_1_2(const config_v1_t *in, config_t *out) {
   out->cfg_version = 2;
 }
 
+void config_migrate_2_3(const config_v2_t *in, config_v3_t *out) {
+  if (!in || !out) return;
+
+  config_defaults(out, in->node_id);
+
+  out->freq_hz = in->freq_hz;
+  out->log_level = in->log_level;
+  out->tx_power = in->tx_power;
+  out->spreading = in->spreading;
+  out->coding_rate = in->coding_rate;
+  out->sync_word = in->sync_word;
+  out->health_period_s = in->health_period_s;
+  out->ack_timeout_ms = in->ack_timeout_ms;
+  out->ack_retries = in->ack_retries;
+  out->vbat_min_mv = in->vbat_min_mv;
+
+  // wifi_enabled, report_period_s, tls_verify, ota_enabled and ota_vbat_min_mv
+  // are new in v3 and keep the defaults config_defaults() just wrote. Note
+  // what this means in practice: a node updated from 1.0.0 comes up with the
+  // uplink ON. That is a deliberate choice — a fleet whose nodes have to be
+  // visited once each to enable reporting is a fleet that never reports — and
+  // it is safe only because the credentials are empty until somebody sets
+  // them, so an unconfigured node simply finds no network and says so.
+
+  out->cfg_version = 3;
+}
+
 int config_migrate(const void *blob, size_t blob_len, uint16_t from_version, config_t *out) {
   if (!blob || !out) return -1;
 
-  // Each hop is its own function and they run in a chain, so a node that sat
-  // in a drawer for a year walks 1->2, then 2->3, and arrives current.
+  // The chain is walked one hop at a time, so a node that sat in a drawer
+  // through two releases arrives current by the same code path a one-hop
+  // upgrade uses. No shortcut from 1 straight to 3: the shortcut is the link
+  // nobody tests and the one that quietly drops a field.
+  config_v2_t v2;
+
   switch (from_version) {
     case 1: {
       if (blob_len != sizeof(config_v1_t)) return -1;
       config_v1_t v1;
       memcpy(&v1, blob, sizeof(v1));
       if (v1.cfg_version != 1) return -1;
-      config_migrate_1_2(&v1, out);
+      config_migrate_1_2(&v1, &v2);
+      config_migrate_2_3(&v2, out);
+      return 0;
+    }
+    case 2: {
+      if (blob_len != sizeof(config_v2_t)) return -1;
+      memcpy(&v2, blob, sizeof(v2));
+      if (v2.cfg_version != 2) return -1;
+      config_migrate_2_3(&v2, out);
       return 0;
     }
     case CFG_VERSION_CURRENT: {

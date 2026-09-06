@@ -12,6 +12,8 @@
 #include "core/version.h"
 #include "hal/battery.h"
 #include "hal/board_pins.h"
+#include "net/net_task.h"
+#include "net/ota.h"
 
 // After this many RECEIVED symbols, the RX line clears and starts over.
 constexpr int RX_CLEAR_AFTER = 16;
@@ -83,6 +85,22 @@ static void drawInfoPage() {
   display.setCursor(0, 34);
   display.printf("POST 0x%04X %s", mask, mask ? "FAIL" : "OK");
 
+  display.setCursor(74, 12);
+  if (otaIsOnTrial())
+    display.print("TRIAL");
+  else if (netUpdateAvailable())
+    display.print("UPD!");
+  else if (netIsConnected())
+    display.print("WiFi");
+  else
+    display.print("----");
+
+  display.setCursor(74, 22);
+  if (netLastCheckInMs())
+    display.printf("%lus", (unsigned long)((millis() - netLastCheckInMs()) / 1000u));
+  else
+    display.print("no rpt");
+
   display.setCursor(0, 44);
   display.printf("up %lus  rb %lu", (unsigned long)(millis() / 1000u),
                  (unsigned long)totalBootCount());
@@ -109,8 +127,19 @@ static void drawMainScreen() {
   // "which one am I holding" must never be a guess.
   display.setCursor(0, 0);
   display.printf("%u %s", config().node_id, calibSerial());
-  display.setCursor(80, 0);
+  display.setCursor(74, 0);
   display.printf("v%s", FW_SEMVER);
+
+  // One character for the uplink, in the corner, permanently. The three states
+  // an operator cares about are "reporting", "an update is waiting" and "on
+  // trial, about to be judged".
+  display.setCursor(122, 0);
+  if (otaIsOnTrial())
+    display.print("T");
+  else if (netUpdateAvailable())
+    display.print("U");
+  else if (netIsConnected())
+    display.print("*");
 
   display.setCursor(0, 16);
   display.print("TX:");
@@ -252,6 +281,41 @@ bool uiBegin() {
 
   Wire.begin(OLED_SDA, OLED_SCL);
   return display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+}
+
+void uiShowOtaProgress(const char *toVersion, uint8_t percent) {
+  if (!i2cTake(pdMS_TO_TICKS(500))) return;
+
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextWrap(false);
+
+  display.setCursor(0, 0);
+  display.printf("node %u  %s", config().node_id, calibSerial());
+
+  display.setCursor(0, 14);
+  display.printf("%s -> %s", FW_SEMVER, toVersion ? toVersion : "?");
+
+  display.setCursor(0, 26);
+  display.print("UPDATING - keep power");
+
+  // A bar, because a number alone does not show a download that has stopped
+  // moving and this one takes minutes.
+  display.drawRect(0, 38, 128, 10, SSD1306_WHITE);
+  const int16_t filled = (int16_t)((int32_t)percent * 126 / 100);
+  if (filled > 0) display.fillRect(1, 39, filled, 8, SSD1306_WHITE);
+
+  display.setCursor(0, 54);
+  display.printf("%3u%%", percent);
+
+  // The battery stays on this screen for the whole download. It is the number
+  // that decides whether this ends in a new image or in a node that has to be
+  // collected.
+  drawBattery(92, 54);
+
+  display.display();
+  i2cGive();
 }
 
 bool uiProbePanel() {

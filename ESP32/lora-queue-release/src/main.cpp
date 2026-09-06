@@ -9,7 +9,10 @@
 #include "core/post.h"
 #include "core/version.h"
 #include "hal/battery.h"
+#include "core/netcfg.h"
 #include "hal/board_pins.h"
+#include "net/net_task.h"
+#include "net/ota.h"
 #include "tasks/button_task.h"
 #include "tasks/radio_task.h"
 #include "tasks/tone.h"
@@ -42,6 +45,12 @@ void setup() {
   logBegin();
   safeModeBegin();
 
+  // Before anything else asks a question about this image: is it one that has
+  // just been installed over the air and has not yet proved itself? Everything
+  // downstream - what the screen says, whether an update is allowed, whether
+  // this boot ends in a confirmation or a revert - depends on the answer.
+  otaBegin();
+
   if (fwIsDirty()) LOG_W(TAG_SYS, E_FW_DIRTY, 0);
 
   calibBegin();
@@ -52,6 +61,11 @@ void setup() {
   // the settings were lost rather than simply never changed.
   const bool cfgOk = configBegin();
   postObserveNvs(cfgOk);
+
+  // Reads the four network credentials out of NVS. No association happens
+  // here: joining a network can take twenty seconds, and the point of this
+  // stretch of setup() is to reach the POST and the splash quickly.
+  netBegin();
 
   const bool displayOk = uiBegin();
   postObserveDisplay(displayOk);
@@ -76,6 +90,13 @@ void setup() {
   // halt: a node that can still answer `version` is worth far more than one
   // that stopped cleanly.
   if (!shellTaskStart(1, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 0);
+
+  // The uplink starts in safe mode too, and that is deliberate: a node that
+  // keeps falling over is exactly the one that has to be reachable, and a new
+  // image delivered over WiFi is the only cure that does not involve a drive.
+  // It is also the task that decides whether an image on trial keeps its
+  // place, so it has to run before anything else can matter.
+  if (!netTaskStart(1, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 5);
   if (displayOk && !uiTaskStart(1, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 1);
   if (toneOk && !toneTaskStart(1, WORK_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 2);
 
@@ -89,7 +110,9 @@ void setup() {
     if (!buttonTaskStart(3, KEY_CORE)) LOG_E(TAG_SYS, E_TASK_START_FAIL, 4);
   }
 
-  if (!radioOk)
+  if (otaIsOnTrial())
+    uiPostBanner("NEW IMAGE ON TRIAL");
+  else if (!radioOk)
     uiPostBanner("RADIO FAIL");
   else if (mask)
     uiPostBanner("POST FAIL");
@@ -102,6 +125,13 @@ void setup() {
 
   Serial.printf("\n%s %s  node %u  serial %s  post 0x%04X\n", fwVersionString(),
                 FW_BUILD_TYPE, config().node_id, calibSerial(), mask);
+
+  if (otaIsOnTrial())
+    Serial.printf(
+        "THIS IMAGE IS ON TRIAL. It reverts to the previous one in %lu s unless\n"
+        "it passes its POST and checks in with the fleet service. `ota confirm`\n"
+        "keeps it now; `ota` shows the state.\n",
+        (unsigned long)otaTrialSecondsLeft());
   shellPrintBanner(Serial);
   Serial.print("> ");
 }

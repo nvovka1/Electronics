@@ -34,3 +34,30 @@ code,name,arg_meaning,notes
 41,batt_low,millivolts,
 42,batt_untrusted,0,"the ADC check failed, gate disabled"
 50,queue_full,queue index,
+60,net_cfg_loaded,1 when an SSID and a base URL are set,
+61,net_cfg_changed,field index,"never the value, two are secrets"
+62,wifi_connecting,attempt number,
+63,wifi_up,"IPv4 address, host order",
+64,wifi_down,wl_status_t,
+65,wifi_fail,consecutive failed associations,
+66,time_synced,unix seconds,TLS cannot judge a cert without it
+67,report_ok,http status,
+68,report_fail,"http status, or a negative HTTPClient error",
+69,logs_sent,records accepted,
+70,logs_fail,http status,
+71,tls_insecure,0,certificate checking is off on this node
+72,net_unprovisioned,0,no SSID or no base URL
+73,net_disabled,0,wifi_enabled is 0
+80,ota_check,http status,204 means nothing to do
+81,ota_available,image size in bytes,
+82,ota_refused,ota_gate_t: which precondition said no,
+83,ota_begin,image size in bytes,
+84,ota_progress,percent complete,
+85,ota_hash_mismatch,bytes written before the hash disagreed,
+86,ota_write_fail,UpdateClass error code,
+87,ota_download_fail,bytes received before the stream stopped,
+88,ota_staged,size,"written and verified, boot slot switched"
+89,ota_trial,0,this image is on probation
+90,ota_confirmed,uptime in seconds when it earned its place,
+91,ota_rollback,ota_rollback_reason_t,
+92,ota_blocked,0,this version already failed its trial once

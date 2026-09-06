@@ -11,7 +11,7 @@
 // display them: they can be older than the firmware and not know the new
 // limits, so validation is always the device's job.
 
-#define CFG_VERSION_CURRENT 2
+#define CFG_VERSION_CURRENT 3
 
 // Layout invariant across every config version: freq_hz occupies bytes 0..3
 // and cfg_version bytes 4..5. That makes any stored blob self-describing, so a
@@ -47,7 +47,33 @@ typedef struct { // 20 bytes
   uint8_t ack_retries;
 } config_v2_t;
 
-typedef config_v2_t config_t;
+// v3 adds the uplink: the node stops being a thing you visit and becomes a
+// thing that reports. The credentials themselves are NOT here - see
+// src/core/netcfg.h for why an SSID lives in a different store from a
+// threshold.
+
+typedef struct { // 28 bytes
+  uint32_t freq_hz;
+  uint16_t cfg_version;
+  uint16_t node_id;
+  uint16_t health_period_s; // over the air, to the neighbouring node
+  uint16_t ack_timeout_ms;
+  uint16_t vbat_min_mv;
+  uint16_t report_period_s; // over WiFi, to the fleet service
+  uint16_t ota_vbat_min_mv; // a far higher floor than a config write needs
+  uint8_t log_level;
+  uint8_t tx_power;
+  uint8_t spreading;
+  uint8_t coding_rate;
+  uint8_t sync_word;
+  uint8_t ack_retries;
+  uint8_t wifi_enabled;
+  uint8_t ota_enabled;
+  uint8_t tls_verify;
+  uint8_t _pad[1];
+} config_v3_t;
+
+typedef config_v3_t config_t;
 
 typedef enum { CFG_U8, CFG_U16, CFG_U32 } cfg_type_t;
 
@@ -89,5 +115,8 @@ int config_validate(const config_t *c, const char **bad_field);
 // fills the new ones from the firmware's defaults.
 int config_migrate(const void *blob, size_t blob_len, uint16_t from_version, config_t *out);
 
-// Exposed so the tests can check one hop in isolation.
-void config_migrate_1_2(const config_v1_t *in, config_t *out);
+// Exposed so the tests can check one hop in isolation. Each hop writes the
+// struct of the version it produces, never the current one: a chain that
+// short-circuits to "current" is a chain with one untested link in it.
+void config_migrate_1_2(const config_v1_t *in, config_v2_t *out);
+void config_migrate_2_3(const config_v2_t *in, config_v3_t *out);

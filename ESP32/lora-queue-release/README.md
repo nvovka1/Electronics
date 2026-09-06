@@ -8,7 +8,9 @@ Tap the key once for a dot, twice for a dash. The symbol goes into a queue, out
 over LoRa in a framed packet, gets acknowledged, and appears on the other
 board's screen. That part is the toy. The rest of this repository is the part
 that matters: the node can name itself, log itself, test itself, be reconfigured
-over a serial line, and survive having its power pulled mid-write.
+over a serial line, survive having its power pulled mid-write, report to a fleet
+service over WiFi, and update its own firmware in a way that comes back if the
+new image turns out to be bad.
 
 ---
 
@@ -35,6 +37,60 @@ Wiring, pinout and the antenna warning: [WIRING.md](WIRING.md).
 
 ---
 
+## Commissioning a node onto the fleet
+
+The image ships knowing the commissioning WiFi network and the fleet service
+URL. What it does not ship with is the API key, because that is a real secret
+and does not belong in a committed file. Give it one over the cable:
+
+```
+> net set key dc779e…4419ba45b189
+> net report
+> net
+```
+
+That is the whole commissioning step. The node enrols itself on its first
+report — there is no list of serial numbers to type in anywhere.
+
+```
+> net
+wifi      enabled
+ssid      BBC
+link      up  ip 192.168.1.57  rssi -54 dBm
+clock     synced (UTC)
+service   https://electronics-fq9f.onrender.com
+api key   set
+period    300 s
+last ok   12 s ago
+logs      74 sent, 0 lost to ring wrap
+target    1.0.0  (current)
+```
+
+To move a node to a different network or a different service, `net set ssid`,
+`net set pass`, `net set url`. All four are stored in their own NVS namespace,
+so `config reset` does not wipe them and `net reset` puts back whatever the
+image was built with.
+
+The build can bake a key in for a production run, without it ever reaching git:
+
+```bash
+LORA_FLEET_API_KEY=… ~/.platformio/penv/Scripts/pio.exe run -e field
+```
+
+**The WiFi password is in `platformio.ini`** and is therefore as public as this
+repository. That is a deliberate trade for a single commissioning network that a
+node has to join before anyone can talk to it at all. Any node that lives
+somewhere that matters should be moved off it with `net set pass`.
+
+### What the site gives you
+
+[`Backend/LoraFleet`](../../Backend/LoraFleet) — every enrolled node, its
+version and build hash, its POST mask and battery, its decoded ring log, and
+which firmware version it is supposed to be running. Assign a version there and
+the node picks it up on its next check-in.
+
+---
+
 ## Three images from one codebase
 
 The node identity is **not** a build flag — it lives in NVS, so one image serves
@@ -42,7 +98,7 @@ any board. What differs between images is what is compiled in.
 
 | | `dev` | `factory` | `field` |
 |---|---|---|---|
-| Log compiled up to | TRACE (5) | DEBUG (4) | WARN (2) |
+| Log compiled up to | TRACE (5) | DEBUG (4) | INFO (3) |
 | Log echoed to UART | yes | yes | no |
 | `config seed_v1`, `crash` | yes | yes | **absent** |
 | `serial set`, `calib vbat` | no | yes | no |
@@ -50,6 +106,12 @@ any board. What differs between images is what is compiled in.
 
 `DEBUG` and `TRACE` in the field image are not switched off by a runtime flag —
 they are not in the binary, so they can never switch themselves back on.
+
+The field image logs at `INFO` rather than `WARN` since v1.1.0. The ring log is
+now uploaded to the fleet service instead of only being read over a cable, and
+`INFO` is where the records worth having live: `cfg_saved`, `wifi_up`,
+`ota_staged`, `ota_confirmed`. Compiling those out would mean the one record
+that proves an update actually took never leaves the device.
 
 Test the image that ships. A dev build that is "almost the same" is how people
 get surprised.
@@ -78,6 +140,16 @@ Type them into the serial monitor at 115200.
 | `crash` | *(dev/factory)* force a panic, to prove the handler works |
 | `serial set <sn>` | *(factory)* write the serial number |
 | `calib vbat <q10>` | *(factory)* battery divider correction |
+| `net` | link, clock, service, last check-in, target version |
+| `net show` | the four credentials, with the two secrets masked |
+| `net set <f> <v>` | `ssid` \| `pass` \| `url` \| `key` |
+| `net report` | check in now instead of waiting for `report_period_s` |
+| `net reset` | back to the credentials built into the image |
+| `ota` | slots, every gate with its current value, trial state |
+| `ota check` | ask the service what this node should be running |
+| `ota update` | download and install it, gates permitting |
+| `ota confirm` | keep an image that is still on trial |
+| `ota rollback` | go back to the previous image |
 | `screen info \| main` | switch the OLED page |
 | `reboot` | restart |
 
@@ -178,6 +250,7 @@ polling for the whole beep.
 | Document | For whom |
 |---|---|
 | [PROTOCOL.md](docs/PROTOCOL.md) | whoever writes the other end — field table, message types, versioning rules, a real frame in hex |
+| [OTA.md](docs/OTA.md) | whoever presses the update button — the gates, the trial, and what reverts an image that does not work |
 | [FIELD_CHECKLIST.md](docs/FIELD_CHECKLIST.md) | whoever signs off a node before it is deployed |
 | [POWER_CUT_EXPERIMENT.md](docs/POWER_CUT_EXPERIMENT.md) | the config-survives-a-power-cut experiment and its results sheet |
 | [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | whoever is in the field at three in the morning |
@@ -196,8 +269,12 @@ the wrong story.
   these modules are PICO-D4 and GPIO16 is the embedded flash's chip select.
   Driving it wedges the boot into a silent watchdog loop that looks exactly like
   a dead board. `OLED_RESET_PIN` is `-1` on purpose — leave it.
-- **Do not change the partition table** unless you have a reason. The board
-  default already provides NVS and two OTA slots.
+- **Do not change the partition table.** `board_build.partitions = default.csv`
+  is now written out explicitly because OTA depends on it: two 1.25 MB
+  application slots and an otadata region are what make an update reversible.
+  Shrink a slot below the image size and the fleet silently stops being
+  updatable. The field image is about 1.00 MB of a 1.25 MB slot — watch that
+  number, WiFi and TLS took it from 26 % to 78 % in one release.
 - **Do not burn eFuses** without running the whole cycle on one sacrificial
   board first. They are permanent.
 
@@ -212,11 +289,22 @@ bounded by the boot counter and safe mode.
 Stated plainly, because a gap that is written down is a decision and a gap that
 is not is a surprise:
 
-- **No OTA.** Over LoRa at SF9 a 480 KB image is about 37 minutes of transmit,
-  which is a battery discharge rather than an update. Updating means a cable.
-- **No authentication.** `SRC` can be forged and frames can be replayed. The
-  CRC catches accidental corruption only. See PROTOCOL.md section 7 for what
-  adding a MAC would involve.
+- **No OTA over LoRa.** A megabyte at SF7 is roughly two hours of transmit,
+  which is a battery discharge rather than an update. Images go over WiFi; the
+  LoRa link carries telemetry. See [OTA.md](docs/OTA.md).
+- **No code signing.** An image is authenticated by TLS to a pinned root and by
+  a SHA-256 from a manifest fetched over that same connection, which means
+  anyone who can serve the fleet service can serve an image. Real signing means
+  secure boot, which means burning eFuses, which is irreversible.
+- **One pinned TLS root.** GTS Root R4, which is what the fleet service chains
+  to today. If its operator ever changes CA, every node stops reporting until
+  someone rebuilds — `config set tls_verify 0` is the escape hatch, and it logs
+  loudly every time it is used.
+- **No per-node authentication.** One shared API key for the fleet. It stops a
+  stranger who finds the URL; it does not survive one node being opened up.
+- **No authentication on the LoRa link.** `SRC` can be forged and frames can be
+  replayed. The CRC catches accidental corruption only. See PROTOCOL.md section
+  7 for what adding a MAC would involve.
 - **No duty-cycle enforcement.** A user keying continuously can exceed the EU868
   1 % limit. The health timer is bounded; symbol traffic is not.
 - **No listen-before-talk.**

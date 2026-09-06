@@ -27,6 +27,16 @@ void uiRefresh();
 // the screen ever shows is what this node is and whether it passed its POST.
 void uiDrawSplash();
 
+// The update screen. Drawn straight from the network task rather than posted
+// to the UI queue, because during a download that task is inside a blocking
+// read and a progress bar that only appears afterwards is not a progress bar.
+//
+// It carries the node number and both versions on purpose: an operator
+// watching a box being updated in the field needs to know which node it is and
+// what it is becoming, and that is exactly the moment when nobody has a laptop
+// and nobody should be guessing.
+void uiShowOtaProgress(const char *toVersion, uint8_t percent);
+
 // Does the panel still acknowledge on I2C? Under the same lock the UI task
 // draws with: `self-test` runs from the shell task, and two masters on one
 // bus is how an I2C transaction gets corrupted.

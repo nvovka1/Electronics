@@ -61,6 +61,13 @@ uint32_t logDropped() {
   return n;
 }
 
+uint32_t logPushed() {
+  portENTER_CRITICAL_SAFE(&s_lock);
+  const uint32_t n = s_ring.pushed;
+  portEXIT_CRITICAL_SAFE(&s_lock);
+  return n;
+}
+
 bool logPeek(uint16_t index, log_rec_t &out) {
   portENTER_CRITICAL_SAFE(&s_lock);
   const bool ok = ring_peek_newest(&s_ring, index, &out);
@@ -95,6 +102,8 @@ const char *logTagName(uint8_t tag) {
     case TAG_UI: return "ui";
     case TAG_KEY: return "key";
     case TAG_BATT: return "batt";
+    case TAG_NET: return "net";
+    case TAG_OTA: return "ota";
     default: return "?";
   }
 }
@@ -136,6 +145,33 @@ const char *logCodeName(uint8_t code) {
     case E_BATT_LOW: return "batt_low";
     case E_BATT_UNTRUSTED: return "batt_untrusted";
     case E_QUEUE_FULL: return "queue_full";
+    case E_NET_CFG_LOADED: return "net_cfg_loaded";
+    case E_NET_CFG_CHANGED: return "net_cfg_changed";
+    case E_WIFI_CONNECTING: return "wifi_connecting";
+    case E_WIFI_UP: return "wifi_up";
+    case E_WIFI_DOWN: return "wifi_down";
+    case E_WIFI_FAIL: return "wifi_fail";
+    case E_TIME_SYNCED: return "time_synced";
+    case E_REPORT_OK: return "report_ok";
+    case E_REPORT_FAIL: return "report_fail";
+    case E_LOGS_SENT: return "logs_sent";
+    case E_LOGS_FAIL: return "logs_fail";
+    case E_TLS_INSECURE: return "tls_insecure";
+    case E_NET_UNPROVISIONED: return "net_unprovisioned";
+    case E_NET_DISABLED: return "net_disabled";
+    case E_OTA_CHECK: return "ota_check";
+    case E_OTA_AVAILABLE: return "ota_available";
+    case E_OTA_REFUSED: return "ota_refused";
+    case E_OTA_BEGIN: return "ota_begin";
+    case E_OTA_PROGRESS: return "ota_progress";
+    case E_OTA_HASH_MISMATCH: return "ota_hash_mismatch";
+    case E_OTA_WRITE_FAIL: return "ota_write_fail";
+    case E_OTA_DOWNLOAD_FAIL: return "ota_download_fail";
+    case E_OTA_STAGED: return "ota_staged";
+    case E_OTA_TRIAL: return "ota_trial";
+    case E_OTA_CONFIRMED: return "ota_confirmed";
+    case E_OTA_ROLLBACK: return "ota_rollback";
+    case E_OTA_BLOCKED: return "ota_blocked";
     default: return "unknown";
   }
 }
