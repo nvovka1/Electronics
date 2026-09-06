@@ -1,4 +1,4 @@
-#include "core/netcfg.h"
+#include "net/netcfg.h"
 
 #include <Preferences.h>
 

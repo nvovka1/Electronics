@@ -35,8 +35,12 @@ uint8_t abnormalBootCount();
 // Retrying the same thing harder is how a node spends the rest of its life in a
 // reset loop, so the network task reads this and backs off instead.
 //
-// Cleared by a deliberate power cycle and by ten minutes of clean uptime, the
-// same two events that clear the abnormal streak.
+// Cleared ONLY by a deliberate power cycle - not by ten minutes of clean
+// uptime, which is what clears the abnormal streak. The difference matters: a
+// node that has been up cleanly for ten minutes with its uplink held off has
+// proved nothing about whether the supply can carry the uplink. It is running
+// cleanly precisely because the thing that breaks it is switched off. Only
+// somebody at the hardware can change that answer.
 uint8_t brownoutStreak();
 
 // Every boot ever, abnormal or not. This is what `version` prints as

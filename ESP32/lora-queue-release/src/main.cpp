@@ -9,7 +9,7 @@
 #include "core/post.h"
 #include "core/version.h"
 #include "hal/battery.h"
-#include "core/netcfg.h"
+#include "net/netcfg.h"
 #include "hal/board_pins.h"
 #include "net/net_task.h"
 #include "net/ota.h"

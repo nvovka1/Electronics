@@ -9,7 +9,7 @@
 #include "core/calib.h"
 #include "core/config.h"
 #include "core/log.h"
-#include "core/netcfg.h"
+#include "net/netcfg.h"
 #include "core/post.h"
 #include "core/version.h"
 #include "hal/battery.h"

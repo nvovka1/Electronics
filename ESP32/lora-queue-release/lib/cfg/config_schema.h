@@ -49,7 +49,7 @@ typedef struct { // 20 bytes
 
 // v3 adds the uplink: the node stops being a thing you visit and becomes a
 // thing that reports. The credentials themselves are NOT here - see
-// src/core/netcfg.h for why an SSID lives in a different store from a
+// src/net/netcfg.h for why an SSID lives in a different store from a
 // threshold.
 
 typedef struct { // 28 bytes

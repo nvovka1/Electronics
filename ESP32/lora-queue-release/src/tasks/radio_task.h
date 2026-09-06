@@ -29,6 +29,19 @@ bool radioRequestHealth();
 // task may be mid-transaction.
 bool radioProbeChip();
 
+// Drops the transceiver into its sleep state, and puts it back into continuous
+// receive. Used for one thing only: standing the radio down for the few seconds
+// the WiFi front end is powering up, on a board whose supply has already given
+// way once. The SX1276 draws about 12 mA in receive, which is not much until
+// you are 30 mA short of a brownout.
+//
+// Both take the same SPI lock the radio task uses, so a packet in flight is
+// never interrupted mid-transaction. Sleeping the radio means missed frames -
+// that is the trade, and it is only made on a node that is otherwise rebooting
+// in a loop.
+bool radioStandDown();
+bool radioStandUp();
+
 // The health frame carries this; every other counter is reported by
 // radioPrintStats() and has no caller outside the radio module.
 int radioLastRssi();

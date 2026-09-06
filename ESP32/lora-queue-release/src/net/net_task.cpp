@@ -6,9 +6,10 @@
 #include "app/safe_mode.h"
 #include "core/config.h"
 #include "core/log.h"
-#include "core/netcfg.h"
+#include "net/netcfg.h"
 #include "net/fleet_client.h"
 #include "net/ota.h"
+#include "tasks/radio_task.h"
 #include "tasks/ui_task.h"
 
 // Records per POST. Thirty-two twelve-byte records make a body of about two
@@ -18,10 +19,14 @@
 // that happens the gap is logged rather than quietly closed.
 static constexpr uint16_t LOG_BATCH_MAX = 32;
 
-// Three brownouts and the uplink stays down until somebody power-cycles the
+// Two brownouts and the uplink stays down until somebody power-cycles the
 // board - which is also the gesture that most often means they have just fitted
 // the battery or changed the cable.
-static constexpr uint8_t BROWNOUT_HOLD_AT = 3;
+//
+// Two rather than three because each attempt costs a reboot, and the second
+// failure already tells us what the first one did: the supply cannot do this.
+// The node is more useful spending that third boot answering questions.
+static constexpr uint8_t BROWNOUT_HOLD_AT = 2;
 
 // After a brownout, let the rails settle and the rest of start-up finish before
 // keying the transmitter again. The OLED, the LoRa module and the flash are all
@@ -53,6 +58,7 @@ static volatile bool s_applyRequested = false;
 static bool s_warnedUnprovisioned = false;
 static bool s_warnedDisabled = false;
 static bool s_warnedBrownout = false;
+static bool s_warnedNoKey = false;
 static int8_t s_appliedDbm = 0;
 
 // --- transmit power -------------------------------------------------------
@@ -76,21 +82,30 @@ static wifi_power_t powerLevelFor(uint8_t dbm) {
   return chosen;
 }
 
-// Must run after WiFi.mode() has started the driver and before WiFi.begin()
-// keys the transmitter for the first time - the association burst is the spike
-// that matters, so setting this afterwards would be setting it too late.
-static void applyTxPower() {
+// The level this attempt intends to use. Chosen and LOGGED before the radio is
+// touched at all, because of what the field log showed: on a supply that cannot
+// carry WiFi, the brownout happens inside WiFi.mode() - when the driver powers
+// up the RF front end and calibrates it - and not during transmission. A record
+// written after that point is a record that never gets written, and its absence
+// from a dump is the clue that says which of the two failures this was.
+static uint8_t intendedTxDbm() {
   uint8_t dbm = config().wifi_tx_dbm;
 
   // The supply has already failed at least once since power was applied. Ask
   // for the least the radio can do rather than the configured value.
   if (brownoutStreak() > 0) dbm = 2;
 
+  LOG_I(TAG_NET, E_NET_TX_POWER, (uint32_t)dbm);
+  return dbm;
+}
+
+// Applied once the driver is running. This bounds the TRANSMIT burst, which is
+// the larger of the two spikes but the later one; nothing here can shrink the
+// start-up burst that comes first.
+static void applyTxPower(uint8_t dbm) {
   const wifi_power_t level = powerLevelFor(dbm);
   WiFi.setTxPower(level);
-
   s_appliedDbm = (int8_t)((int)level / 4);
-  LOG_I(TAG_NET, E_NET_TX_POWER, (uint32_t)s_appliedDbm);
 }
 
 // --- association ----------------------------------------------------------
@@ -103,18 +118,52 @@ static bool ensureAssociated() {
   s_lastAttemptMs = now;
 
   LOG_I(TAG_NET, E_WIFI_CONNECTING, s_associateFailures + 1u);
+  const uint8_t dbm = intendedTxDbm();
 
-  WiFi.disconnect(true);
+  // Every milliamp something else is not drawing is a milliamp available to the
+  // RF front end when it powers up, and that moment is where a marginal supply
+  // gives way. Three things stand down together, worth roughly 55 mA out of a
+  // burst of about 250:
+  //
+  //   processor  240 -> 80 MHz          ~30 mA
+  //   display    blanked                ~15 mA
+  //   LoRa       receive -> sleep       ~12 mA
+  //
+  // That is not enough to rescue a genuinely bad supply and is not meant to be
+  // - a cable that cannot deliver 250 mA usually cannot deliver 195 either. It
+  // is enough to matter on a board that is only just failing, and it costs
+  // nothing on a healthy one because it is applied only after a brownout has
+  // already happened.
+  const bool easeOff = brownoutStreak() > 0;
+  if (easeOff) {
+    uiSuspendPanel();
+    radioStandDown();
+    Serial.flush(); // the switch reprograms the UART divider mid-character
+    setCpuFrequencyMhz(80);
+  }
+
+  // Only when there is something to disconnect. On the first attempt of a boot
+  // the driver has never been started, and asking it to disconnect is work and
+  // an error line for nothing.
+  if (WiFi.getMode() != WIFI_OFF) WiFi.disconnect(true);
+
   WiFi.mode(WIFI_STA);
   // Modem sleep between beacons. On a node that talks for two seconds every
   // five minutes this is most of the WiFi power budget.
   WiFi.setSleep(true);
-  applyTxPower();
+  applyTxPower(dbm);
   WiFi.begin(netcfgSsid(), netcfgPassword());
 
   const uint32_t started = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - started < ASSOCIATE_TIMEOUT_MS)
     delay(250);
+
+  if (easeOff) {
+    Serial.flush();
+    setCpuFrequencyMhz(240);
+    radioStandUp();
+    uiResumePanel();
+  }
 
   if (WiFi.status() != WL_CONNECTED) {
     s_associateFailures++;
@@ -312,6 +361,17 @@ static void netTask(void * /*arg*/) {
     }
     s_warnedUnprovisioned = false;
 
+    // An empty key is not "unprovisioned" - netcfgIsProvisioned() deliberately
+    // does not require one, because a service that wants no key is a legitimate
+    // thing to point a node at. But the fleet service does want one, and the
+    // symptom of never having set it is a 401 on every report forever, which
+    // reads like a broken deployment rather than a missing command. Say it
+    // once, plainly, before the first attempt.
+    if (netcfgApiKey()[0] == '\0' && !s_warnedNoKey) {
+      LOG_W(TAG_NET, E_NET_NO_API_KEY, 0);
+      s_warnedNoKey = true;
+    }
+
     if (ensureAssociated()) {
       ensureTime();
       runCycle();
@@ -380,10 +440,13 @@ void netPrintStatus(Print &out) {
   if (netBrownoutHold()) {
     out.printf("wifi      HELD OFF - %u brownout resets since power was applied\n",
                brownoutStreak());
-    out.println("          The supply cannot deliver the transmit burst. Fit the");
-    out.println("          battery, use a shorter cable or a powered port, then");
-    out.println("          power-cycle the board. `config set wifi_tx_dbm 2` makes");
-    out.println("          the burst as small as this radio can make it.");
+    out.println("          The supply cannot deliver what the WiFi radio draws when");
+    out.println("          it powers up. That burst comes before any transmission,");
+    out.println("          so no power setting avoids it - this is the cable, the");
+    out.println("          port, or the missing battery.");
+    out.println("          Fit the battery, or use a short cable on a powered port,");
+    out.println("          then POWER-CYCLE. A reboot deliberately does not clear");
+    out.println("          this: only somebody at the hardware can change the answer.");
     return;
   }
 
@@ -406,7 +469,12 @@ void netPrintStatus(Print &out) {
 
   out.printf("clock     %s\n", s_timeSynced ? "synced (UTC)" : "not synced - HTTPS will refuse");
   out.printf("service   %s\n", netcfgBaseUrl()[0] ? netcfgBaseUrl() : "(not set)");
-  out.printf("api key   %s\n", netcfgApiKey()[0] ? "set" : "(not set)");
+  if (netcfgApiKey()[0]) {
+    out.println("api key   set");
+  } else {
+    out.println("api key   NOT SET  <- the service refuses every report with");
+    out.println("                     401 until `net set key <key>` is run");
+  }
   out.printf("period    %u s\n", config().report_period_s);
 
   if (s_lastCheckInMs)

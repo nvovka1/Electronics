@@ -79,6 +79,7 @@ public static class LogDictionary
         [73] = "net_disabled",
         [74] = "net_tx_power",
         [75] = "net_brownout_hold",
+        [76] = "net_no_api_key",
         [80] = "ota_check",
         [81] = "ota_available",
         [82] = "ota_refused",
@@ -196,6 +197,7 @@ public static class LogDictionary
         69 => $"{arg} records",                                         // logs_sent
         74 => $"{arg} dBm",                                             // net_tx_power
         75 => $"{arg} brownout resets - uplink held off",               // net_brownout_hold
+        76 => "no api key set on the node",                              // net_no_api_key
         81 or 83 or 88 => $"{arg:N0} bytes",                            // ota_available/begin/staged
         82 => OtaGateName((int)arg),                                    // ota_refused
         84 => $"{arg}%",                                                // ota_progress

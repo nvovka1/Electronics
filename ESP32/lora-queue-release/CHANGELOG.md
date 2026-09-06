@@ -5,14 +5,27 @@ somebody upgrading has to do.
 
 ## v1.1.1 - 2026-09-06
 
-**What changed.** Two things, both about the WiFi transmitter's appetite for
-current. The radio now transmits at 13 dBm instead of the 19.5 it defaults to,
-which roughly halves the peak draw during an association and is ample indoors;
-the level is a new setting, `wifi_tx_dbm`, so a node at the edge of coverage can
-be turned back up without a rebuild. And the node now counts brownout resets
-separately from other abnormal boots: after one it drops to the lowest power the
-radio has and waits five seconds before associating, and after three it stops
-bringing WiFi up at all until somebody power-cycles the board.
+**What changed.** The node now survives a supply that cannot carry its WiFi
+radio, instead of rebooting into the same wall forever.
+
+Brownout resets are counted separately from other abnormal boots. After one, the
+node waits five seconds before associating, asks for the lowest transmit power
+the radio has, and drops the processor to 80 MHz for the attempt; after two it
+stops bringing WiFi up at all until somebody power-cycles the board. Only a
+power cycle clears it - ten minutes of clean uptime does not, because a node
+running cleanly with its uplink switched off has proved nothing about the uplink.
+
+Transmit power is also now 13 dBm rather than the 19.5 the radio defaults to,
+and is a new setting, `wifi_tx_dbm`, so a node at the edge of coverage can be
+turned back up without a rebuild.
+
+One thing measuring this taught us, which is written down because it is not
+obvious: on a supply this marginal the brownout happens inside `WiFi.mode()`,
+when the driver powers up and calibrates the RF front end - **before** any
+transmission. No transmit-power setting avoids that burst. The power setting
+still bounds the later, larger transmit spike, and the level chosen is logged
+before the radio is touched, so a dump distinguishes the two failures by which
+records are present.
 
 **What broke.** Nothing, but one behaviour is worth stating plainly because it
 was a real defect: before this release a board whose supply could not carry the

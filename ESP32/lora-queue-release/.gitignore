@@ -3,3 +3,13 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Local secrets, read by scripts/version_flags.py and never committed.
+#
+# This holds the fleet API key so builds pick it up without an environment
+# variable being set by hand every time. It is the one file in this project that
+# must never reach git: a secret in a commit is in every clone and every copy of
+# the history from that moment, and rotating the key does not remove it.
+#
+# The .example file next to it IS committed - it is the documentation.
+secrets.local.ini

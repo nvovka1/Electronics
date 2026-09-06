@@ -318,6 +318,18 @@ void uiShowOtaProgress(const char *toVersion, uint8_t percent) {
   i2cGive();
 }
 
+void uiSuspendPanel() {
+  if (!i2cTake(pdMS_TO_TICKS(200))) return;
+  display.ssd1306_command(SSD1306_DISPLAYOFF);
+  i2cGive();
+}
+
+void uiResumePanel() {
+  if (!i2cTake(pdMS_TO_TICKS(200))) return;
+  display.ssd1306_command(SSD1306_DISPLAYON);
+  i2cGive();
+}
+
 bool uiProbePanel() {
   if (!i2cTake(pdMS_TO_TICKS(200))) return false;
 

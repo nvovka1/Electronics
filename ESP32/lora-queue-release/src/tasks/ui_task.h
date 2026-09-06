@@ -37,6 +37,13 @@ void uiDrawSplash();
 // and nobody should be guessing.
 void uiShowOtaProgress(const char *toVersion, uint8_t percent);
 
+// Blanks the panel and brings it back. The SSD1306 draws 10-15 mA with most of
+// its pixels lit, which is worth having back during a WiFi power-up on a supply
+// that cannot carry one. Only used for that; a node that simply wants a dark
+// screen would use the info page instead.
+void uiSuspendPanel();
+void uiResumePanel();
+
 // Does the panel still acknowledge on I2C? Under the same lock the UI task
 // draws with: `self-test` runs from the shell task, and two masters on one
 // bus is how an I2C transaction gets corrupted.

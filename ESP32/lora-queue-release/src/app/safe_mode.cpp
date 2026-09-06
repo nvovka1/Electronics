@@ -109,13 +109,15 @@ void safeModeBegin() {
 }
 
 void safeModeTick() {
-  if (s_counterCleared || (s_abnormal == 0 && s_brownouts == 0)) return;
+  if (s_counterCleared || s_abnormal == 0) return;
   if (millis() < CLEAN_UPTIME_MS) return;
 
+  // s_brownouts is deliberately NOT cleared here. Ten minutes of clean uptime
+  // is evidence that the software is stable; it is no evidence at all that the
+  // supply can carry a WiFi association, because the reason the node has been
+  // stable is that the association is not being attempted.
   s_abnormal = 0;
   s_rtcAbnormal = 0;
-  s_brownouts = 0;
-  s_rtcBrownouts = 0;
   s_counterCleared = true;
   persistCounters();
 

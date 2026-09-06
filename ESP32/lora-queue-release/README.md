@@ -39,6 +39,10 @@ Wiring, pinout and the antenna warning: [WIRING.md](WIRING.md).
 
 ## Commissioning a node onto the fleet
 
+The short version is below; [COMMISSIONING.md](docs/COMMISSIONING.md) is the
+step-by-step with the reasoning, including where a node's name comes from and
+why the API key is not in this repository.
+
 The image ships knowing the commissioning WiFi network and the fleet service
 URL. What it does not ship with is the API key, because that is a real secret
 and does not belong in a committed file. Give it one over the cable:
@@ -71,16 +75,34 @@ To move a node to a different network or a different service, `net set ssid`,
 so `config reset` does not wipe them and `net reset` puts back whatever the
 image was built with.
 
-The build can bake a key in for a production run, without it ever reaching git:
+The API key is compiled in from `custom_fleet_api_key` in `platformio.ini`, so a
+freshly flashed board is already commissioned and `net set key` is only needed to
+move one to a different fleet. Every build reports which key it used:
 
-```bash
-LORA_FLEET_API_KEY=… ~/.platformio/penv/Scripts/pio.exe run -e field
+```
+version_flags: fleet API key compiled in (64 chars)
 ```
 
-**The WiFi password is in `platformio.ini`** and is therefore as public as this
-repository. That is a deliberate trade for a single commissioning network that a
-node has to join before anyone can talk to it at all. Any node that lives
-somewhere that matters should be moved off it with `net set pass`.
+To supply a key without committing it - which is what a real fleet wants - use
+`secrets.local.ini` (gitignored, see the `.example`) or the `LORA_FLEET_API_KEY`
+environment variable. Both outrank `platformio.ini`. Note that PowerShell has no
+`VAR=value command` form; that is bash syntax and PowerShell reads the whole
+thing as a program name:
+
+```bash
+$env:LORA_FLEET_API_KEY = "0123...cdef"
+~/.platformio/penv/Scripts/pio.exe run -e field
+Remove-Item Env:LORA_FLEET_API_KEY
+```
+
+**The WiFi password and the fleet API key are both in `platformio.ini`** and are
+therefore as public as this repository. That is deliberate for a demo fleet: one
+commissioning network, and a key that permits filing health reports and reading
+a firmware manifest and nothing else. Both are overridable per node with
+`net set`, and the key can be supplied per build instead — see
+`secrets.local.ini.example` and [COMMISSIONING.md](docs/COMMISSIONING.md). The
+day either guards something real, take it out of this file **and rotate it**:
+deleting the line does not reach back through the history.
 
 ### What the site gives you
 
@@ -206,16 +228,58 @@ src/
   app/              UART shell, safe mode, event structs
   core/             version, log, config, calibration, POST, health telemetry
   hal/              board pins, battery sense
+  net/              everything that talks to the fleet service
   tasks/            button, radio, UI, sidetone
-test/test_native/   37 host tests
-docs/               protocol spec, field checklist, experiments, log dictionary
+test/test_native/   41 host tests
+docs/               protocol spec, commissioning, OTA, field checklist,
+                    experiments, log dictionary
 scripts/            version flags, release manifest, host test runner,
                     log dict generator, power-cut rig
+fleet.ini           which fleet these nodes belong to
+platformio.ini      how the firmware is built
 ```
 
 Everything in `lib/` is deliberately free of `Arduino.h` so it links into a host
 binary. That is what makes the frame codec, the config bounds, the migration and
 the A/B slot rule testable in two seconds without hardware.
+
+### `src/net/` — the fleet uplink
+
+```
+netcfg.*            ssid, password, url, api key; NVS namespace "net"
+fleet_client.*      the four HTTP calls, JSON in and out, TLS
+net_task.*          WiFi lifecycle, the clock, the reporting loop
+ota.*               gates, download, SHA-256, the trial and the rollback
+root_ca.h           the single certificate this node trusts
+```
+
+**Nothing outside this folder talks to the service.** The rest of the firmware
+does not know it exists: the radio, the shell, the POST and the config are the
+same code they were before there was a fleet, and deleting the folder and its
+five call sites in `main.cpp` and `shell.cpp` would leave a working node that
+simply reports to nobody.
+
+That boundary is why the network task can block for forty-five seconds on a
+sleeping server without a key press being delayed by a millisecond.
+
+### `fleet.ini` — kept apart from `platformio.ini` on purpose
+
+```ini
+[fleet]
+ssid      = BBC
+password  = liza2017
+base_url  = https://electronics-fq9f.onrender.com
+api_key   = dc779e…ba45b189
+```
+
+The two files answer different questions. `platformio.ini` says how the firmware
+is **built** — compiler flags, log levels, which test commands exist. `fleet.ini`
+says where it will **report**. They change for unrelated reasons, usually by
+different people, and pointing a batch of boards at another fleet should not
+mean reading past `-Wall`.
+
+`platformio.ini` pulls it in with `extra_configs = fleet.ini` and interpolates
+`${fleet.ssid}` and friends, so a plain `pio run` needs no extra arguments.
 
 ---
 
@@ -251,6 +315,7 @@ polling for the whole beep.
 | Document | For whom |
 |---|---|
 | [PROTOCOL.md](docs/PROTOCOL.md) | whoever writes the other end — field table, message types, versioning rules, a real frame in hex |
+| [COMMISSIONING.md](docs/COMMISSIONING.md) | whoever takes a board from flashed to visible on the dashboard - where the name comes from, what the API key is and the three ways to give a node one |
 | [OTA.md](docs/OTA.md) | whoever presses the update button — the gates, the trial, and what reverts an image that does not work |
 | [FIELD_CHECKLIST.md](docs/FIELD_CHECKLIST.md) | whoever signs off a node before it is deployed |
 | [POWER_CUT_EXPERIMENT.md](docs/POWER_CUT_EXPERIMENT.md) | the config-survives-a-power-cut experiment and its results sheet |

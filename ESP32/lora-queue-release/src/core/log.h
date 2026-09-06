@@ -101,6 +101,7 @@ enum LogCode : uint8_t {
   E_NET_DISABLED = 73,         // arg = 0; wifi_enabled is 0
   E_NET_TX_POWER = 74,         // arg = dBm actually applied to the transmitter
   E_NET_BROWNOUT_HOLD = 75,    // arg = consecutive brownouts; the uplink is off
+  E_NET_NO_API_KEY = 76,       // arg = 0; the service will refuse every report
   // ota 80..99
   E_OTA_CHECK = 80,            // arg = http status; 204 means nothing to do
   E_OTA_AVAILABLE = 81,        // arg = image size in bytes

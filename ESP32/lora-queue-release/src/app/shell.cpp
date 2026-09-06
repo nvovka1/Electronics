@@ -7,7 +7,7 @@
 #include "core/log.h"
 #include "core/post.h"
 #include "core/version.h"
-#include "core/netcfg.h"
+#include "net/netcfg.h"
 #include "hal/battery.h"
 #include "net/net_task.h"
 #include "net/ota.h"
@@ -457,6 +457,15 @@ static void dispatch(Print &out, char *line) {
   }
 }
 
+// The shell echoes what is typed at it. A serial monitor does not echo locally,
+// so without this an operator types blind - which is merely annoying for
+// `version` and genuinely dangerous for `net set key <64 hex characters>`,
+// where the only feedback on a mistyped or half-pasted value is a 401 hours
+// later. Backspace works for the same reason.
+//
+// The consequence to be aware of: a captured serial session now contains
+// whatever was typed into it, including secrets. Treat a commissioning log the
+// way you would treat the key itself.
 static void shellTask(void * /*arg*/) {
   for (;;) {
     while (Serial.available()) {
@@ -464,6 +473,7 @@ static void shellTask(void * /*arg*/) {
 
       if (c == '\r') continue;
       if (c == '\n') {
+        Serial.println();
         s_line[s_len] = '\0';
         if (s_len) dispatch(Serial, s_line);
         Serial.print("> ");
@@ -471,9 +481,25 @@ static void shellTask(void * /*arg*/) {
         continue;
       }
 
+      if (c == '\b' || c == 0x7F) { // backspace, and the DEL most terminals send
+        if (s_len) {
+          s_len--;
+          Serial.print("\b \b"); // back over it, wipe it, back again
+        }
+        continue;
+      }
+
+      // Control characters are swallowed rather than echoed: a stray escape
+      // sequence from an arrow key would otherwise scribble on the line and
+      // end up inside the command.
+      if (c < 0x20 || c > 0x7E) continue;
+
       // An over-long line is truncated rather than dropped: the operator gets
       // an error naming a mangled command instead of silence.
-      if (s_len < SHELL_LINE_MAX - 1) s_line[s_len++] = c;
+      if (s_len < SHELL_LINE_MAX - 1) {
+        s_line[s_len++] = c;
+        Serial.write(c);
+      }
     }
 
     // Every command answers. Polling at 20 ms keeps the shell responsive

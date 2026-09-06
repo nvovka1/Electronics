@@ -302,6 +302,20 @@ static void radioTask(void * /*arg*/) {
 
 // --- lifecycle ------------------------------------------------------------
 
+bool radioStandDown() {
+  if (!busTake(pdMS_TO_TICKS(500))) return false;
+  LoRa.sleep();
+  busGive();
+  return true;
+}
+
+bool radioStandUp() {
+  if (!busTake(pdMS_TO_TICKS(500))) return false;
+  LoRa.receive();
+  busGive();
+  return true;
+}
+
 bool radioProbeChip() {
   if (!busTake(pdMS_TO_TICKS(500))) return false;
 
