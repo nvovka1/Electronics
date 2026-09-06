@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LQ-27C4 · LoraFleet</title>
+    <link rel="stylesheet" href="/css/site.css?v=95BDvWtllKojQwb1BEC8cimM26c0DSRaGWK_kwOD2II" />
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/devices">LoraFleet</a>
+        <nav>
+            <a class="active" href="/devices">Devices</a>
+            <a class="" href="/logs">Logs</a>
+            <a class="" href="/firmware">Firmware</a>
+        </nav>
+    </header>
+
+    <main>
+
+        
+<h1 class="mono">LQ-27C4</h1>
+<p class="subtitle">
+    <span class="chip late">Late</span>
+    node 1 &middot; last seen 55 min ago
+        <span class="chip danger">dirty build &mdash; not reproducible</span>
+</p>
+
+<div class="columns">
+    <div class="card">
+        <h2>Identity</h2>
+        <dl class="kv">
+            <dt>Serial</dt><dd class="mono">LQ-27C4</dd>
+            <dt>Node id</dt><dd class="mono">1</dd>
+            <dt>Hardware</dt><dd class="mono">ttgo-lora32-v21new</dd>
+            <dt>Firmware</dt><dd class="mono">1.1.0+f95af5c</dd>
+            <dt>Build type</dt><dd class="mono">dev</dd>
+            <dt>Protocol</dt><dd class="mono">v@device.ProtocolVersion</dd>
+            <dt>Config version</dt><dd class="mono">v@device.ConfigVersion</dd>
+            <dt>Enrolled</dt><dd>2026-09-06 09:14 UTC</dd>
+            <dt>Last seen</dt><dd>2026-09-06 09:31:07 UTC</dd>
+        </dl>
+    </div>
+
+    <div class="card">
+        <h2>Last health report</h2>
+            <dl class="kv">
+                <dt>Uptime</dt>
+                <dd class="mono">0d 00:15:35</dd>
+
+                <dt>Reboots</dt>
+                <dd class="mono">75 &middot; last: POWERON</dd>
+
+                <dt>Battery</dt>
+                <dd class="mono">
+                        <span class="chip degraded">untrusted</span>
+                        <span class="hint">The node's ADC self-test failed, so it does not believe its own reading.</span>
+                </dd>
+
+                <dt>Last RSSI</dt><dd class="mono">0 dBm</dd>
+                <dt>POST mask</dt>
+                <dd class="mono">
+                    0x@health.PostMask.ToString("X4")
+                </dd>
+                <dt>Reported</dt><dd>2026-09-06 09:31:03 UTC</dd>
+            </dl>
+                <h2 style="margin-top:20px">Failing blocks</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Bit</th><th>Block</th><th>Reaction</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="mono">0</td>
+                                <td>
+                                    <span class="chip missing">power</span>
+                                </td>
+                                <td class="dim">Sense broken: readings untrusted and the flash-write gate opens. Pack flat: telemetry only.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+    </div>
+</div>
+
+<div class="columns">
+    <div class="card">
+        <h2>Target firmware</h2>
+        <p class="hint">
+            The version this node should be running. Comparing it with what the node reports
+            is what produces the out-of-date list. Flashing is still a cable job &mdash; this
+            firmware has no OTA client.
+        </p>
+
+        <form method="post" action="/devices/LQ-27C4/target-firmware">
+            <div class="field">
+                <label for="targetVersion">Assigned version</label>
+                <select id="targetVersion" name="targetVersion">
+                    <option value="">&mdash; no target &mdash;</option>
+                </select>
+            </div>
+                <p class="hint">
+                    No deployable release matches this board (ttgo-lora32-v21new).
+                    Upload a manifest and image on the Firmware page first.
+                </p>
+            <div class="actions">
+                <button type="submit">Save target</button>
+            </div>
+        <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Pe5XNQSY29GsyzRjyj9_I0xYMgZVhbxz3Df7AQHCxTUqvhj8EyMVcY4uCgk5BHjYxIuWcZ13x_BwZMxvo-LR-rAph5irsXeA-9jAwxgdkWdeJYpHRiwsPgbGAlOjnQc-Lwh_xCP7NSpWjvdjO4_SKs" /></form>
+    </div>
+
+    <div class="card">
+        <h2>Operator notes</h2>
+        <form method="post" action="/devices/LQ-27C4/notes">
+            <div class="field">
+                <label for="notes">Where it is, which mast, who to call</label>
+                <textarea id="notes" name="notes" rows="4"></textarea>
+            </div>
+            <div class="actions">
+                <button type="submit">Save notes</button>
+            </div>
+        <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Pe5XNQSY29GsyzRjyj9_I0xYMgZVhbxz3Df7AQHCxTUqvhj8EyMVcY4uCgk5BHjYxIuWcZ13x_BwZMxvo-LR-rAph5irsXeA-9jAwxgdkWdeJYpHRiwsPgbGAlOjnQc-Lwh_xCP7NSpWjvdjO4_SKs" /></form>
+
+        <div class="actions" style="border-top:1px solid var(--border); padding-top:14px; margin-top:18px">
+            <form method="post" action="/devices/LQ-27C4/decommission">
+                <input type="hidden" name="isDecommissioned" value="true" />
+                <button type="submit" class="secondary">
+                    Retire this node
+                </button>
+            <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Pe5XNQSY29GsyzRjyj9_I0xYMgZVhbxz3Df7AQHCxTUqvhj8EyMVcY4uCgk5BHjYxIuWcZ13x_BwZMxvo-LR-rAph5irsXeA-9jAwxgdkWdeJYpHRiwsPgbGAlOjnQc-Lwh_xCP7NSpWjvdjO4_SKs" /></form>
+
+            <form method="post" onsubmit="return confirm('Delete LQ-27C4 and all of its log records? It will re-enrol on its next check-in.');" action="/devices/LQ-27C4/delete">
+                <button type="submit" class="danger">Delete</button>
+            <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Pe5XNQSY29GsyzRjyj9_I0xYMgZVhbxz3Df7AQHCxTUqvhj8EyMVcY4uCgk5BHjYxIuWcZ13x_BwZMxvo-LR-rAph5irsXeA-9jAwxgdkWdeJYpHRiwsPgbGAlOjnQc-Lwh_xCP7NSpWjvdjO4_SKs" /></form>
+        </div>
+        <p class="hint">
+            Retiring stops a node being reported as missing. Deleting also removes its log
+            records, so a node that later re-enrols with the same serial does not inherit
+            a stranger's history.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+    <h2>
+        Recent log
+        <a style="font-weight:400; font-size:13px; margin-left:8px" href="/logs?serial=LQ-27C4">open in the log view</a>
+    </h2>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Received</th>
+                        <th class="num">Device ms</th>
+                        <th>Level</th>
+                        <th>Tag</th>
+                        <th>Code</th>
+                        <th>Argument</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:31:07</td>
+                        <td class="num mono">938974</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">report_ok</td>
+                        <td class="mono dim">202 ok</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:31:07</td>
+                        <td class="num mono">903728</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:31:07</td>
+                        <td class="num mono">843656</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:31:07</td>
+                        <td class="num mono">783580</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:31:07</td>
+                        <td class="num mono">723507</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:31:07</td>
+                        <td class="num mono">663447</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:31:07</td>
+                        <td class="num mono">635168</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">logs_sent</td>
+                        <td class="mono dim">10 records</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">630854</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">report_ok</td>
+                        <td class="mono dim">202 ok</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">603386</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">543321</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">483254</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">423187</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">395781</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">tx_noack</td>
+                        <td class="mono dim">12</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">393190</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">tx_noack</td>
+                        <td class="mono dim">11</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">390599</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">tx_noack</td>
+                        <td class="mono dim">10</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">363120</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:25:59</td>
+                        <td class="num mono">326633</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">logs_sent</td>
+                        <td class="mono dim">10 records</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">322320</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">report_ok</td>
+                        <td class="mono dim">202 ok</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">303047</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">242989</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">182928</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">122854</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">62782</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">health_tx</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">20674</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">tx_noack</td>
+                        <td class="mono dim">3</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">18396</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">logs_sent</td>
+                        <td class="mono dim">17 records</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">18079</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">tx_noack</td>
+                        <td class="mono dim">2</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:20:51</td>
+                        <td class="num mono">15485</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">tx_noack</td>
+                        <td class="mono dim">1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">13595</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">report_ok</td>
+                        <td class="mono dim">202 ok</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">12894</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">tx_noack</td>
+                        <td class="mono dim">0</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">9357</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">time_synced</td>
+                        <td class="mono dim">2026-09-06 09:15:34Z</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">4354</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">wifi_up</td>
+                        <td class="mono dim">192.168.0.108</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">2714</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">net_tx_power</td>
+                        <td class="mono dim">13 dBm</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">2713</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">wifi_connecting</td>
+                        <td class="mono dim">attempt 1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">2713</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">wdt_subscribed</td>
+                        <td class="mono dim">8 s</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">186</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">post</td>
+                        <td class="mono">post_mask</td>
+                        <td class="mono dim">0x0001 (power)</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">171</td>
+                        <td class="mono lvl-ERROR">ERROR</td>
+                        <td class="mono dim">post</td>
+                        <td class="mono">post_fail</td>
+                        <td class="mono dim">power</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">171</td>
+                        <td class="mono lvl-ERROR">ERROR</td>
+                        <td class="mono dim">post</td>
+                        <td class="mono">post_critical</td>
+                        <td class="mono dim">power</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">170</td>
+                        <td class="mono lvl-ERROR">ERROR</td>
+                        <td class="mono dim">batt</td>
+                        <td class="mono">batt_untrusted</td>
+                        <td class="mono dim">128 mV, implausible</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">168</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">radio_ready</td>
+                        <td class="mono dim">868000</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">142</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">net_cfg_loaded</td>
+                        <td class="mono dim">provisioned</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">114</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">cfg</td>
+                        <td class="mono">cfg_loaded</td>
+                        <td class="mono dim">slot A seq 1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">93</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">fw_dirty</td>
+                        <td class="mono dim">0</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">78</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">boot_count</td>
+                        <td class="mono dim">0</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:15:43</td>
+                        <td class="num mono">78</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">boot</td>
+                        <td class="mono dim">POWERON</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">9969</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">report_ok</td>
+                        <td class="mono dim">202 ok</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">5955</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">time_synced</td>
+                        <td class="mono dim">2026-09-06 09:14:37Z</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">4353</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">wifi_up</td>
+                        <td class="mono dim">192.168.0.108</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">2714</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">net_tx_power</td>
+                        <td class="mono dim">13 dBm</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">2713</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">wifi_connecting</td>
+                        <td class="mono dim">attempt 1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">2713</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">wdt_subscribed</td>
+                        <td class="mono dim">8 s</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">186</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">post</td>
+                        <td class="mono">post_mask</td>
+                        <td class="mono dim">0x0001 (power)</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">171</td>
+                        <td class="mono lvl-ERROR">ERROR</td>
+                        <td class="mono dim">post</td>
+                        <td class="mono">post_fail</td>
+                        <td class="mono dim">power</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">171</td>
+                        <td class="mono lvl-ERROR">ERROR</td>
+                        <td class="mono dim">post</td>
+                        <td class="mono">post_critical</td>
+                        <td class="mono dim">power</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">170</td>
+                        <td class="mono lvl-ERROR">ERROR</td>
+                        <td class="mono dim">batt</td>
+                        <td class="mono">batt_untrusted</td>
+                        <td class="mono dim">202 mV, implausible</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">168</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">radio</td>
+                        <td class="mono">radio_ready</td>
+                        <td class="mono dim">868000</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">142</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">net</td>
+                        <td class="mono">net_cfg_loaded</td>
+                        <td class="mono dim">provisioned</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">115</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">cfg</td>
+                        <td class="mono">cfg_loaded</td>
+                        <td class="mono dim">slot A seq 1</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">93</td>
+                        <td class="mono lvl-WARN">WARN</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">fw_dirty</td>
+                        <td class="mono dim">0</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">78</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">boot_count</td>
+                        <td class="mono dim">0</td>
+                    </tr>
+                    <tr>
+                        <td class="nowrap dim mono">09-06 09:14:46</td>
+                        <td class="num mono">78</td>
+                        <td class="mono lvl-INFO">INFO</td>
+                        <td class="mono dim">sys</td>
+                        <td class="mono">boot</td>
+                        <td class="mono dim">POWERON</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+</div>
+
+    </main>
+
+    <footer>
+        <span>LoRa node fleet management</span>
+        <span>2026-09-06 10:26 UTC</span>
+    </footer>
+</body>
+</html>
