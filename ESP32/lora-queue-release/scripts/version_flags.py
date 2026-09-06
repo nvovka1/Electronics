@@ -1,9 +1,20 @@
 """Inject build identity into the firmware as -D flags.
 
-Nobody types a version into a header by hand: they forget on the second
-release and then "1.4.2" exists in five different variants. Everything here
-comes from git, and a build with uncommitted changes is marked -dirty so it
-can be refused at release time.
+Build identity is two separate facts and they come from different places on
+purpose:
+
+  the semver   what this release CLAIMS about compatibility. A human decision,
+               so a human sets it: custom_fw_version in platformio.ini. Falling
+               back to the nearest v-tag when it is left empty.
+
+  the hash     which code it ACTUALLY is, plus whether the tree was clean.
+               Never typed, always from git, because this is the half that has
+               to be true rather than intended.
+
+That split is what makes `1.1.1+9c41b7e` worth printing: the left half says
+what was meant and the right half proves what was built. A version typed into a
+header would give you the first without the second, and then "1.4.2" exists in
+five variants with no way to tell them apart.
 
 Wired up from platformio.ini as:  extra_scripts = pre:scripts/version_flags.py
 """
@@ -44,6 +55,32 @@ def semver_from_tag():
     return tag[1:] if tag.startswith("v") else tag
 
 
+def resolve_semver():
+    """custom_fw_version if it is set, otherwise the nearest v-tag.
+
+    Set by hand because what a version number CLAIMS - that this release is
+    compatible with that one - is a judgement no tool can make. The tag remains
+    the fallback so a checkout with neither still builds.
+    """
+    configured = env.GetProjectOption("custom_fw_version", "").strip()  # noqa: F821
+    if not configured:
+        return semver_from_tag(), "v-tag"
+
+    tag = git("describe", "--tags", "--abbrev=0", "--match", "v[0-9]*")
+    tag_semver = tag[1:] if tag.startswith("v") else tag
+
+    # Said out loud rather than silently preferred. Shipping 1.1.1 from a tree
+    # tagged v1.1.0 is a perfectly normal thing to do while a release is being
+    # prepared - and it is also exactly what a forgotten tag looks like.
+    if tag_semver and tag_semver != configured:
+        print(
+            "version_flags: custom_fw_version is %s but the nearest tag is v%s; "
+            "using %s" % (configured, tag_semver, configured)
+        )
+
+    return configured, "custom_fw_version"
+
+
 def is_dirty():
     """Dirty is scoped to this project, not the whole monorepo.
 
@@ -53,7 +90,7 @@ def is_dirty():
     return bool(git("status", "--porcelain", "--", PROJECT_DIR))
 
 
-semver = semver_from_tag()
+semver, semver_source = resolve_semver()
 git_hash = git("rev-parse", "--short=7", "HEAD", default="nogit00")
 dirty = 1 if is_dirty() else 0
 build_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -142,6 +179,20 @@ env.Append(  # noqa: F821
 )
 
 print(
-    "version_flags: %s+%s%s  built %s  hw %s"
-    % (semver, git_hash, "-dirty" if dirty else "", build_utc, hw_id)
+    "version_flags: %s+%s%s  built %s  hw %s  (semver from %s)"
+    % (semver, git_hash, "-dirty" if dirty else "", build_utc, hw_id, semver_source)
 )
+
+if dirty:
+    # Named, not just flagged. "It says dirty and I do not know why" is a
+    # question this script can simply answer.
+    changed = git("status", "--porcelain", "--", PROJECT_DIR).splitlines()
+    print(
+        "version_flags: WORKING TREE IS DIRTY - %d changed path%s, so this image "
+        "cannot be reproduced from any commit and the fleet service will refuse "
+        "to deploy it. Commit them to clear it." % (len(changed), "" if len(changed) == 1 else "s")
+    )
+    for line in changed[:8]:
+        print("version_flags:   %s" % line)
+    if len(changed) > 8:
+        print("version_flags:   ... and %d more" % (len(changed) - 8))
