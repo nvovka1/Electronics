@@ -61,6 +61,29 @@ static WiFiClient *prepareClient(const char *url) {
   return &s_tls;
 }
 
+// Reads a response body into a String and parses it.
+//
+// getString(), NOT getStream(). The difference is the whole reason this
+// firmware spent a day unable to update itself: getStream() hands back the raw
+// socket, and the fleet service sits behind a CDN that answers
+// `Transfer-Encoding: chunked`. A JSON parser reading that socket directly sees
+// the chunk-size line before the JSON, fails, and reports nothing useful.
+// getString() de-chunks first.
+//
+// The bodies here are a few hundred bytes, so holding one in a String costs
+// nothing worth counting.
+static bool readJson(HTTPClient &http, JsonDocument &doc) {
+  const String body = http.getString();
+  const DeserializationError err = deserializeJson(doc, body);
+  if (err == DeserializationError::Ok) return true;
+
+  // Never silent. A response this firmware cannot read is indistinguishable
+  // from a server that said nothing, and the two need completely different
+  // repairs.
+  LOG_W(TAG_NET, E_NET_BAD_JSON, (uint32_t)body.length());
+  return false;
+}
+
 static bool beginRequest(HTTPClient &http, WiFiClient *client, const char *url) {
   http.setConnectTimeout(CONNECT_TIMEOUT_MS);
   http.setTimeout(RESPONSE_TIMEOUT_MS);
@@ -127,7 +150,7 @@ int fleetPostHealth(fleet_checkin_t &out) {
 
   if (status == HTTP_CODE_ACCEPTED || status == HTTP_CODE_OK) {
     JsonDocument response;
-    if (deserializeJson(response, http.getStream()) == DeserializationError::Ok) {
+    if (readJson(http, response)) {
       out.update_available = response["updateAvailable"] | false;
       const char *target = response["targetFirmwareVersion"] | "";
       strncpy(out.target_version, target, sizeof(out.target_version) - 1);
@@ -203,7 +226,7 @@ int fleetGetTargetFirmware(ota_manifest_t &out) {
 
   if (status == HTTP_CODE_OK) {
     JsonDocument doc;
-    if (deserializeJson(doc, http.getStream()) != DeserializationError::Ok) {
+    if (!readJson(http, doc)) {
       status = FLEET_ERR_BAD_RESPONSE;
     } else {
       strncpy(out.version, doc["version"] | "", sizeof(out.version) - 1);

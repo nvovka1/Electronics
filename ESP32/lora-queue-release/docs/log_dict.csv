@@ -51,6 +51,7 @@ code,name,arg_meaning,notes
 74,net_tx_power,dBm actually applied to the transmitter,
 75,net_brownout_hold,consecutive brownouts,the uplink is off
 76,net_no_api_key,0,the service will refuse every report
+77,net_bad_json,body length,the response could not be parsed
 80,ota_check,http status,204 means nothing to do
 81,ota_available,image size in bytes,
 82,ota_refused,ota_gate_t: which precondition said no,

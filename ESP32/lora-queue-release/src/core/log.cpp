@@ -162,6 +162,7 @@ const char *logCodeName(uint8_t code) {
     case E_NET_TX_POWER: return "net_tx_power";
     case E_NET_BROWNOUT_HOLD: return "net_brownout_hold";
     case E_NET_NO_API_KEY: return "net_no_api_key";
+    case E_NET_BAD_JSON: return "net_bad_json";
     case E_OTA_CHECK: return "ota_check";
     case E_OTA_AVAILABLE: return "ota_available";
     case E_OTA_REFUSED: return "ota_refused";

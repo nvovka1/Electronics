@@ -325,6 +325,60 @@ const char *otaGateText(ota_gate_t gate) {
 
 // --- the download ---------------------------------------------------------
 
+static void reportProgress(const char *version, uint32_t written, uint32_t total);
+
+// Where the downloaded image goes: straight into the inactive flash slot, and
+// through the hash on the way past.
+//
+// This exists as a Stream so HTTPClient::writeToStream() can drive it, and it
+// has to be writeToStream() rather than a read loop on getStreamPtr() because
+// the service answers `Transfer-Encoding: chunked`. Reading the socket directly
+// would write the chunk-size lines into flash along with the image - which the
+// SHA-256 would catch, so nothing would break, but no update would ever
+// succeed either.
+//
+// Nothing is buffered: a third of a megabyte will not fit, and hashing what was
+// actually written rather than what will be read back is what catches a
+// truncated or tampered image before any slot is switched.
+class OtaSink : public Stream {
+ public:
+  OtaSink(mbedtls_sha256_context *sha, const char *version, uint32_t total)
+      : _sha(sha), _version(version), _total(total) {}
+
+  size_t write(const uint8_t *data, size_t len) override {
+    if (len == 0) return 0;
+
+    if (Update.write(const_cast<uint8_t *>(data), len) != len) {
+      LOG_E(TAG_OTA, E_OTA_WRITE_FAIL, Update.getError());
+      _failed = true;
+      return 0; // stops writeToStream()
+    }
+
+    mbedtls_sha256_update_ret(_sha, data, len);
+    _written += len;
+    reportProgress(_version, _written, _total);
+    return len;
+  }
+
+  size_t write(uint8_t b) override { return write(&b, 1); }
+
+  // Write-only. Stream demands these; nothing ever reads from it.
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+  void flush() override {}
+
+  uint32_t written() const { return _written; }
+  bool failed() const { return _failed; }
+
+ private:
+  mbedtls_sha256_context *_sha;
+  const char *_version;
+  uint32_t _total;
+  uint32_t _written = 0;
+  bool _failed = false;
+};
+
 static void reportProgress(const char *version, uint32_t written, uint32_t total) {
   const uint8_t percent = total ? (uint8_t)((uint64_t)written * 100u / total) : 0;
   if (percent == s_percent) return;
@@ -416,52 +470,15 @@ bool otaApply(const ota_manifest_t &manifest) {
   mbedtls_sha256_init(&sha);
   mbedtls_sha256_starts_ret(&sha, /*is224=*/0);
 
-  WiFiClient *stream = http.getStreamPtr();
+  OtaSink sink(&sha, manifest.version, manifest.size_bytes);
 
-  // Static, not on the stack: this runs on the network task, which is already
-  // carrying an mbedtls session, and only that task ever calls otaApply().
-  static uint8_t buffer[CHUNK];
-  uint32_t written = 0;
-  uint32_t lastByteMs = millis();
-  bool failed = false;
+  // Handles both identity and chunked encodings, which getStreamPtr() does not.
+  http.writeToStream(&sink);
 
-  while (written < manifest.size_bytes) {
-    const size_t available = stream->available();
+  const uint32_t written = sink.written();
+  const bool failed = sink.failed() || written != manifest.size_bytes;
 
-    if (available == 0) {
-      if (!stream->connected() || millis() - lastByteMs > STREAM_STALL_MS) {
-        LOG_E(TAG_OTA, E_OTA_DOWNLOAD_FAIL, written);
-        failed = true;
-        break;
-      }
-      delay(10);
-      continue;
-    }
-
-    const size_t want = min(min(available, CHUNK),
-                            (size_t)(manifest.size_bytes - written));
-    const int got = stream->readBytes(buffer, want);
-    if (got <= 0) {
-      delay(10);
-      continue;
-    }
-
-    if (Update.write(buffer, got) != (size_t)got) {
-      LOG_E(TAG_OTA, E_OTA_WRITE_FAIL, Update.getError());
-      failed = true;
-      break;
-    }
-
-    // Hashed as it goes past. Buffering a third of a megabyte to hash it
-    // afterwards is not an option on this part, and hashing what was written
-    // rather than what will be read back is what catches a truncated or
-    // tampered image before anything switches.
-    mbedtls_sha256_update_ret(&sha, buffer, got);
-
-    written += got;
-    lastByteMs = millis();
-    reportProgress(manifest.version, written, manifest.size_bytes);
-  }
+  if (failed && !sink.failed()) LOG_E(TAG_OTA, E_OTA_DOWNLOAD_FAIL, written);
 
   http.end();
 
@@ -469,7 +486,7 @@ bool otaApply(const ota_manifest_t &manifest) {
   mbedtls_sha256_finish_ret(&sha, digest);
   mbedtls_sha256_free(&sha);
 
-  if (failed || written != manifest.size_bytes) {
+  if (failed) {
     Update.abort();
     s_state = OTA_FAILED;
     uiPostBanner("update failed");
