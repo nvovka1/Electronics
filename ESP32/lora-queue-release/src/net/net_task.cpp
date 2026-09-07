@@ -264,6 +264,13 @@ static void checkForUpdate(bool apply) {
 
   if (!apply) return;
 
+  // Flush the log before the reboot. The ring lives in RAM, so everything
+  // recorded since the last upload - including ota_available and the gate
+  // decision that got us here - is destroyed by the restart. Without this the
+  // site's account of an update starts after the update, which is precisely
+  // the part nobody needs.
+  uploadLogs();
+
   // Returns only on failure: on success the node is already rebooting into
   // the new image, on trial, with the rollback net under it.
   otaApply(manifest);

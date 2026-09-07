@@ -24,8 +24,12 @@
             <dt>Hardware</dt><dd class="mono">@(string.IsNullOrEmpty(device.HardwareId) ? "unknown" : device.HardwareId)</dd>
             <dt>Firmware</dt><dd class="mono">@device.FirmwareVersion+@device.FirmwareHash</dd>
             <dt>Build type</dt><dd class="mono">@device.BuildType</dd>
-            <dt>Protocol</dt><dd class="mono">v@device.ProtocolVersion</dd>
-            <dt>Config version</dt><dd class="mono">v@device.ConfigVersion</dd>
+@* Parenthesised on purpose. Razor treats an @ with non-whitespace on both
+   sides as a literal so that email addresses in markup survive, which means
+   "v@device.ProtocolVersion" renders as those exact characters rather than the
+   value. The parentheses tell it this is an expression. *@
+            <dt>Protocol</dt><dd class="mono">v@(device.ProtocolVersion)</dd>
+            <dt>Config version</dt><dd class="mono">v@(device.ConfigVersion)</dd>
             <dt>Enrolled</dt><dd>@device.EnrolledAt.ToString("yyyy-MM-dd HH:mm") UTC</dd>
             <dt>Last seen</dt><dd>@device.LastSeenAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</dd>
         </dl>
