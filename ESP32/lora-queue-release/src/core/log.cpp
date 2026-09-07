@@ -175,6 +175,7 @@ const char *logCodeName(uint8_t code) {
     case E_OTA_CONFIRMED: return "ota_confirmed";
     case E_OTA_ROLLBACK: return "ota_rollback";
     case E_OTA_BLOCKED: return "ota_blocked";
+    case E_OTA_VERSION_MISMATCH: return "ota_version_mismatch";
     default: return "unknown";
   }
 }

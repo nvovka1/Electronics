@@ -93,6 +93,7 @@ public static class LogDictionary
         [90] = "ota_confirmed",
         [91] = "ota_rollback",
         [92] = "ota_blocked",
+        [93] = "ota_version_mismatch",
     };
 
     /// <summary>
@@ -204,6 +205,7 @@ public static class LogDictionary
         85 or 87 => $"{arg:N0} bytes in",                               // hash mismatch, download fail
         90 => $"after {arg} s of uptime",                               // ota_confirmed
         91 => OtaRollbackReasonName((int)arg),                          // ota_rollback
+        93 => "the manifest's version is not the image's",               // ota_version_mismatch
         _ => arg.ToString(),
     };
 

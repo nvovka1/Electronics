@@ -64,3 +64,4 @@ code,name,arg_meaning,notes
 90,ota_confirmed,uptime in seconds when it earned its place,
 91,ota_rollback,ota_rollback_reason_t,
 92,ota_blocked,0,this version already failed its trial once
+93,ota_version_mismatch,0,the manifest's version is not the image's

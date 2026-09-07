@@ -21,6 +21,7 @@
 static constexpr const char *NS = "ota";
 static constexpr const char *KEY_BLOCKED = "blocked";
 static constexpr const char *KEY_LAST_CRITICAL = "critmask";
+static constexpr const char *KEY_EXPECT = "expect";
 
 // Ten minutes to prove itself. Long enough to cover a WiFi access point that
 // is slow to come back and a hosting instance that has to wake from sleep;
@@ -50,6 +51,10 @@ static char s_blockedVersion[24] = {0};
 // permanently un-updatable for a fault no image can fix.
 static uint16_t s_lastGoodCritical = 0;
 
+// The version the manifest claimed for the image we just installed, carried
+// across the reboot so the new image can check whether the claim was true.
+static char s_expectedVersion[24] = {0};
+
 // --- the rollback hook ----------------------------------------------------
 
 // Arduino's initArduino() confirms a PENDING_VERIFY image the moment it
@@ -69,8 +74,19 @@ static void loadPersistedState() {
   Preferences prefs;
   if (!prefs.begin(NS, /*readOnly=*/true)) return;
   prefs.getString(KEY_BLOCKED, s_blockedVersion, sizeof(s_blockedVersion));
+  prefs.getString(KEY_EXPECT, s_expectedVersion, sizeof(s_expectedVersion));
   s_lastGoodCritical = prefs.getUShort(KEY_LAST_CRITICAL, 0);
   prefs.end();
+}
+
+static void clearExpectedVersion() {
+  if (s_expectedVersion[0] == '\0') return;
+  Preferences prefs;
+  if (prefs.begin(NS, /*readOnly=*/false)) {
+    prefs.remove(KEY_EXPECT);
+    prefs.end();
+  }
+  s_expectedVersion[0] = '\0';
 }
 
 static void storeBlockedVersion(const char *version) {
@@ -120,6 +136,25 @@ void otaBegin() {
   s_state = OTA_ON_TRIAL;
   s_trialStartedMs = millis();
 
+  // Did we get the image the manifest promised?
+  //
+  // A manifest describes an image; nothing forces the two to agree, and a
+  // relabelled one is an easy mistake to make by hand. The consequence is
+  // nastier than it sounds: the service assigns 1.1.3, the node installs a
+  // binary that reports 1.1.2, the service still wants 1.1.3, and the node
+  // downloads a megabyte and reboots for the rest of its life.
+  //
+  // The image itself is fine - it is a real, verified build - so it is kept.
+  // What gets blocked is the VERSION THE MANIFEST CLAIMED, which stops the
+  // loop at exactly one iteration.
+  if (s_expectedVersion[0] != '\0' &&
+      !hexEqualsIgnoringCase(s_expectedVersion, FW_SEMVER)) {
+    LOG_E(TAG_OTA, E_OTA_VERSION_MISMATCH, 0);
+    storeBlockedVersion(s_expectedVersion);
+    clearExpectedVersion();
+    uiPostBanner("manifest version wrong");
+  }
+
   // WARN, not INFO: a node in this state for longer than the trial window is
   // about to revert, and that is worth seeing in a dump.
   LOG_W(TAG_OTA, E_OTA_TRIAL, 0);
@@ -147,6 +182,7 @@ bool otaConfirmNow() {
   // This version boots, self-tests and reports. Whatever failed before, it was
   // not this one, so an old block must not keep refusing it forever.
   if (!hexEqualsIgnoringCase(s_blockedVersion, FW_SEMVER)) clearBlockedVersion();
+  clearExpectedVersion();
 
   // Whatever is failing its POST right now is failing on an image that has
   // just proved itself, so it is the hardware, not the software. Recorded as
@@ -468,6 +504,16 @@ bool otaApply(const ota_manifest_t &manifest) {
   s_state = OTA_STAGED;
   LOG_I(TAG_OTA, E_OTA_STAGED, written);
 
+  // Recorded before the reboot, because after it this code is not running.
+  // The image that comes up checks this against its own FW_SEMVER.
+  {
+    Preferences prefs;
+    if (prefs.begin(NS, /*readOnly=*/false)) {
+      prefs.putString(KEY_EXPECT, manifest.version);
+      prefs.end();
+    }
+  }
+
   uiShowOtaProgress(manifest.version, 100);
   uiPostBanner("rebooting to update");
   delay(1200); // long enough to be read off the glass
@@ -505,6 +551,8 @@ void otaPrint(Print &out) {
 
   if (s_blockedVersion[0])
     out.printf("blocked   %s  (failed its trial on this node)\n", s_blockedVersion);
+  if (s_expectedVersion[0])
+    out.printf("expecting %s on the next boot\n", s_expectedVersion);
   if (s_lastGoodCritical)
     out.printf("baseline  critical POST 0x%04X was already failing before the "
                "last confirmed image\n",

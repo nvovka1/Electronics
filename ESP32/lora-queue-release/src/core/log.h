@@ -116,6 +116,7 @@ enum LogCode : uint8_t {
   E_OTA_CONFIRMED = 90,        // arg = uptime in seconds when it earned its place
   E_OTA_ROLLBACK = 91,         // arg = ota_rollback_reason_t
   E_OTA_BLOCKED = 92,          // arg = 0; this version already failed its trial once
+  E_OTA_VERSION_MISMATCH = 93, // arg = 0; the manifest's version is not the image's
 };
 
 // Every level a call site can use gets its own macro, and the ones above
