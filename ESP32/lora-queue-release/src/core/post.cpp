@@ -1,5 +1,6 @@
 #include "core/post.h"
 
+#include "core/config.h"
 #include "core/log.h"
 #include "hal/battery.h"
 #include "hal/board_pins.h"
@@ -33,12 +34,26 @@ void postObserveRadio(bool ok) { s_radioOk = ok; }
 static bool chk_power(void) {
   const uint16_t mv = batteryMillivolts();
 
+  if (!config().has_battery) {
+    // Declared permanently powered. There is no cell to measure and no charge
+    // to run out of, and the fact that this code is executing at all is the
+    // proof that the supply is present - a check no ADC could improve on.
+    //
+    // The reading is still marked untrusted, because a floating sense pin
+    // returns a number and that number means nothing. Telemetry then reports
+    // "no reading" rather than a plausible-looking 0.7 V.
+    batterySetTrusted(false);
+    return true;
+  }
+
   if (mv < VBAT_SENSE_FLOOR_MV) {
     // Nothing is on the pin. Reporting this as a flat battery would be a lie,
     // and worse, it would let the low-power gate refuse every flash write for
     // the rest of the node's life over a missing resistor.
     batterySetTrusted(false);
     LOG_E(TAG_BATT, E_BATT_UNTRUSTED, mv);
+    // If this node runs on USB, this is not a fault - it is a node that has
+    // never been told so. `config set has_battery 0`.
     return false;
   }
 

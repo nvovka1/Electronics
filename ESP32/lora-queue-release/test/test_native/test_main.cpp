@@ -218,6 +218,8 @@ static void test_config_struct_layout_is_stable(void) {
   // catch a v3 record mislabelled as v4, so this assertion is the thing keeping
   // that from happening by accident.
   TEST_ASSERT_EQUAL_size_t(28, sizeof(config_v4_t));
+  TEST_ASSERT_EQUAL_size_t(32, sizeof(config_v5_t));
+  TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v5_t, cfg_version));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v1_t, cfg_version));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v2_t, cfg_version));
   TEST_ASSERT_EQUAL_size_t(4, offsetof(config_v3_t, cfg_version));
@@ -427,8 +429,9 @@ static void test_migrate_3_4_lowers_the_wifi_transmit_power(void) {
 
   TEST_ASSERT_EQUAL_UINT16(4, v4.cfg_version);
 
-  const char *bad = nullptr;
-  TEST_ASSERT_EQUAL_INT(0, config_validate(&v4, &bad));
+  // Not validated here: config_validate() only ever judges the CURRENT
+  // version, which is what makes it the right check for a config about to be
+  // used. Intermediate hops are validated at the end of the chain instead.
 }
 
 static void test_migrate_3_4_from_blob(void) {
@@ -473,6 +476,47 @@ static void test_migrate_3_4_from_blob(void) {
   TEST_ASSERT_EQUAL_STRING("wifi_tx_dbm", bad);
 }
 
+static void test_migrate_4_5_keeps_the_battery_gates_on(void) {
+  config_v4_t v4;
+  memset(&v4, 0, sizeof(v4));
+  v4.cfg_version = 4;
+  v4.freq_hz = 868000000u;
+  v4.node_id = 5;
+  v4.health_period_s = 60;
+  v4.ack_timeout_ms = 600;
+  v4.vbat_min_mv = 3300;
+  v4.report_period_s = 300;
+  v4.ota_vbat_min_mv = 3600;
+  v4.log_level = 3;
+  v4.tx_power = 14;
+  v4.spreading = 7;
+  v4.coding_rate = 5;
+  v4.sync_word = 0x2B;
+  v4.ack_retries = 3;
+  v4.wifi_enabled = 1;
+  v4.ota_enabled = 1;
+  v4.tls_verify = 1;
+  v4.wifi_tx_dbm = 13;
+
+  config_v5_t v5;
+  config_migrate_4_5(&v4, &v5);
+
+  TEST_ASSERT_EQUAL_UINT16(5, v5.node_id);
+  TEST_ASSERT_EQUAL_UINT8(13, v5.wifi_tx_dbm);
+  TEST_ASSERT_EQUAL_UINT16(3600, v5.ota_vbat_min_mv);
+
+  // The whole point of this hop: has_battery arrives as 1, so a fleet updating
+  // to v5 keeps every charge gate it had. A migration must never switch a
+  // safety gate OFF across a whole fleet - a node that really is on USB is told
+  // so by an operator, once, deliberately.
+  TEST_ASSERT_EQUAL_UINT8(1, v5.has_battery);
+
+  TEST_ASSERT_EQUAL_UINT16(5, v5.cfg_version);
+
+  const char *bad = nullptr;
+  TEST_ASSERT_EQUAL_INT(0, config_validate(&v5, &bad));
+}
+
 static void test_migrate_chain_from_blob(void) {
   // A node that has been in a drawer since fw 1.0.0: its record is v1 and it
   // has to walk 1 -> 2 -> 3 in one boot, carrying its settings the whole way.
@@ -488,7 +532,8 @@ static void test_migrate_chain_from_blob(void) {
   // update reach it next time without anyone driving out.
   TEST_ASSERT_EQUAL_UINT8(1, out.wifi_enabled);
   TEST_ASSERT_EQUAL_UINT16(300, out.report_period_s);
-  TEST_ASSERT_EQUAL_UINT8(13, out.wifi_tx_dbm); // survived three hops
+  TEST_ASSERT_EQUAL_UINT8(13, out.wifi_tx_dbm); // survived the whole chain
+  TEST_ASSERT_EQUAL_UINT8(1, out.has_battery);
 
   const char *bad = nullptr;
   TEST_ASSERT_EQUAL_INT(0, config_validate(&out, &bad));
@@ -701,6 +746,7 @@ int main(int, char **) {
   RUN_TEST(test_migrate_1_2_carries_old_and_defaults_new);
   RUN_TEST(test_migrate_2_3_carries_old_and_defaults_new);
   RUN_TEST(test_migrate_3_4_lowers_the_wifi_transmit_power);
+  RUN_TEST(test_migrate_4_5_keeps_the_battery_gates_on);
   RUN_TEST(test_migrate_chain_from_blob);
   RUN_TEST(test_migrate_2_3_from_blob);
   RUN_TEST(test_migrate_3_4_from_blob);

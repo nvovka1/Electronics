@@ -11,7 +11,7 @@
 // display them: they can be older than the firmware and not know the new
 // limits, so validation is always the device's job.
 
-#define CFG_VERSION_CURRENT 4
+#define CFG_VERSION_CURRENT 5
 
 // Layout invariant across every config version: freq_hz occupies bytes 0..3
 // and cfg_version bytes 4..5. That makes any stored blob self-describing, so a
@@ -102,7 +102,45 @@ typedef struct { // 28 bytes
   uint8_t wifi_tx_dbm; // the WiFi transmitter, and a supply-current setting
 } config_v4_t;
 
-typedef config_v4_t config_t;
+// v5 adds one fact the firmware cannot work out for itself: whether this node
+// has a battery at all.
+//
+// It matters because the board's sense divider reads the same ~0 mV in two
+// completely different situations - a node running on USB with no cell fitted,
+// and a node running on a cell whose sense divider has failed. The first is
+// perfectly safe to update over the air; the second is the exact case the
+// battery gate exists to refuse, because writing a third of a megabyte and
+// rebooting into unrun code on an unknown charge is how a device stops coming
+// back.
+//
+// No inference can separate them, so the operator says which it is. The default
+// is 1 - assume a battery, keep every gate - because the safe answer has to be
+// the one you get by doing nothing.
+
+typedef struct { // 32 bytes
+  uint32_t freq_hz;
+  uint16_t cfg_version;
+  uint16_t node_id;
+  uint16_t health_period_s;
+  uint16_t ack_timeout_ms;
+  uint16_t vbat_min_mv;
+  uint16_t report_period_s;
+  uint16_t ota_vbat_min_mv;
+  uint8_t log_level;
+  uint8_t tx_power;
+  uint8_t spreading;
+  uint8_t coding_rate;
+  uint8_t sync_word;
+  uint8_t ack_retries;
+  uint8_t wifi_enabled;
+  uint8_t ota_enabled;
+  uint8_t tls_verify;
+  uint8_t wifi_tx_dbm;
+  uint8_t has_battery; // 0 = permanently powered from USB or mains
+  uint8_t _pad[3];
+} config_v5_t;
+
+typedef config_v5_t config_t;
 
 typedef enum { CFG_U8, CFG_U16, CFG_U32 } cfg_type_t;
 
@@ -150,3 +188,4 @@ int config_migrate(const void *blob, size_t blob_len, uint16_t from_version, con
 void config_migrate_1_2(const config_v1_t *in, config_v2_t *out);
 void config_migrate_2_3(const config_v2_t *in, config_v3_t *out);
 void config_migrate_3_4(const config_v3_t *in, config_v4_t *out);
+void config_migrate_4_5(const config_v4_t *in, config_v5_t *out);

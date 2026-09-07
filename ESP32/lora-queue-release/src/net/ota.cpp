@@ -248,8 +248,17 @@ ota_gate_t otaCheckGates(const ota_manifest_t &manifest) {
   // write is a few hundred bytes and is retried at leisure; this is a third of
   // a megabyte of flash followed by a reboot into code that has never run, and
   // it is not a thing to do on a battery whose level is a guess.
-  if (!batteryTrusted()) return OTA_GATE_BATTERY_UNTRUSTED;
-  if (batteryMillivolts() < config().ota_vbat_min_mv) return OTA_GATE_LOW_BATTERY;
+  //
+  // Both gates are skipped on a node declared permanently powered, because
+  // neither has anything to protect against: there is no charge to run out
+  // halfway through. Note that an interrupted update is safe here for the same
+  // reason it is safe everywhere else in this file - nothing switches slots
+  // until every byte is verified, and a supply lost after that leaves the new
+  // image on trial, which reverts on its own if it never confirms.
+  if (config().has_battery) {
+    if (!batteryTrusted()) return OTA_GATE_BATTERY_UNTRUSTED;
+    if (batteryMillivolts() < config().ota_vbat_min_mv) return OTA_GATE_LOW_BATTERY;
+  }
 
   const esp_partition_t *target = esp_ota_get_next_update_partition(nullptr);
   if (!target || manifest.size_bytes > target->size) return OTA_GATE_TOO_BIG;
@@ -479,8 +488,11 @@ void otaPrint(Print &out) {
   out.printf("target    %s  (%lu KB slot)\n", next ? next->label : "none",
              next ? (unsigned long)(next->size / 1024u) : 0ul);
   out.printf("enabled   %s\n", config().ota_enabled ? "yes" : "no");
-  out.printf("vbat gate %u mV  (now %u mV%s)\n", config().ota_vbat_min_mv,
-             batteryMillivolts(), batteryTrusted() ? "" : ", untrusted");
+  if (config().has_battery)
+    out.printf("vbat gate %u mV  (now %u mV%s)\n", config().ota_vbat_min_mv,
+               batteryMillivolts(), batteryTrusted() ? "" : ", untrusted");
+  else
+    out.println("vbat gate off  (has_battery 0: this node is permanently powered)");
   out.printf("free heap %lu bytes\n", (unsigned long)ESP.getFreeHeap());
 
   if (s_onTrial)

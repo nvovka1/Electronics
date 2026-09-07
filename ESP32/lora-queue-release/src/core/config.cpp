@@ -156,6 +156,9 @@ bool configWasMigrated(uint16_t &fromVersion) {
 // same rule that forbids OTA below 40% forbids a config write below the
 // configured floor.
 bool configPowerAllowsWrite() {
+  // Nothing to protect against on a node that cannot run out of charge.
+  if (!s_cfg.has_battery) return true;
+
   if (!batteryTrusted()) {
     // The ADC self-test failed, so the reading means nothing. Refusing on a
     // number we do not believe would lock the operator out of the device over
