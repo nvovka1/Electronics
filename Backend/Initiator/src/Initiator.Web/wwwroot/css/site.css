@@ -1,0 +1,177 @@
+:root {
+    --bg: #11141a;
+    --panel: #181c24;
+    --panel-2: #1f2430;
+    --line: #2b3240;
+    --ink: #e6e9ef;
+    --ink-dim: #99a1b3;
+    --accent: #6ea8fe;
+
+    /* The four state colours are the four LEDs on the node, on purpose. */
+    --safe: #4d8bf0;
+    --init: #35c66b;
+    --armed: #e0a81c;
+    --fire: #e5484d;
+
+    --ok: #35c66b;
+    --warn: #e0a81c;
+    --bad: #e5484d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* --- chrome ------------------------------------------------------------- */
+
+.topbar {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.85rem 1.5rem;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+}
+
+.brand { font-weight: 650; font-size: 1.1rem; color: var(--ink); letter-spacing: 0.01em; }
+.topbar nav { display: flex; gap: 1.1rem; }
+.topbar nav a { color: var(--ink-dim); }
+.topbar nav a.active { color: var(--ink); border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 1.5rem; }
+
+footer {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    color: var(--ink-dim);
+    font-size: 0.85rem;
+}
+
+h1 { font-size: 1.4rem; margin: 0 0 0.25rem; }
+h2 { font-size: 1.05rem; margin: 1.75rem 0 0.6rem; }
+.lede { color: var(--ink-dim); margin: 0 0 1.25rem; }
+
+/* --- notices ------------------------------------------------------------ */
+
+.notice {
+    padding: 0.7rem 0.95rem;
+    border-radius: 6px;
+    margin-bottom: 1.1rem;
+    border: 1px solid;
+}
+.notice.ok  { background: rgba(53, 198, 107, 0.09); border-color: rgba(53, 198, 107, 0.35); }
+.notice.bad { background: rgba(229, 72, 77, 0.09);  border-color: rgba(229, 72, 77, 0.35); }
+
+/* --- tables ------------------------------------------------------------- */
+
+table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--line); }
+th { background: var(--panel-2); font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-dim); }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr.attention td { background: rgba(229, 72, 77, 0.06); }
+tbody tr.live td { background: rgba(224, 168, 28, 0.06); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.empty { padding: 2rem; text-align: center; color: var(--ink-dim); background: var(--panel); border-radius: 8px; }
+
+/* --- state badges ------------------------------------------------------- */
+
+.state {
+    display: inline-block;
+    padding: 0.13rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: #0d1015;
+}
+.state-safe  { background: var(--safe); }
+.state-init  { background: var(--init); }
+.state-armed { background: var(--armed); }
+.state-fire  { background: var(--fire); }
+
+.status { font-size: 0.8rem; font-weight: 600; }
+.status-healthy { color: var(--ok); }
+.status-degraded, .status-late { color: var(--warn); }
+.status-missing { color: var(--bad); }
+.status-decommissioned { color: var(--ink-dim); }
+
+.pill { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 4px; font-size: 0.75rem; border: 1px solid var(--line); color: var(--ink-dim); }
+.pill-applied { color: var(--ok); border-color: rgba(53, 198, 107, 0.4); }
+.pill-rejected { color: var(--bad); border-color: rgba(229, 72, 77, 0.4); }
+.pill-pending, .pill-delivered { color: var(--accent); border-color: rgba(110, 168, 254, 0.4); }
+.pill-expired, .pill-cancelled { color: var(--ink-dim); }
+
+.dim { color: var(--ink-dim); }
+.mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.85rem; }
+
+/* --- the command row ---------------------------------------------------- */
+
+.commands { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin: 0.5rem 0 0.25rem; }
+
+button.cmd {
+    font: inherit;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    padding: 0.55rem 1.35rem;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    color: var(--ink);
+    cursor: pointer;
+}
+button.cmd:hover:not(:disabled) { border-color: var(--accent); }
+
+/* A command the node's known state would refuse is shown, not hidden: the
+   sequence should always be readable as a whole. */
+button.cmd:disabled { opacity: 0.32; cursor: not-allowed; }
+
+button.cmd-init:hover:not(:disabled)  { background: var(--init); color: #0d1015; }
+button.cmd-arm:hover:not(:disabled)   { background: var(--armed); color: #0d1015; }
+button.cmd-fire:hover:not(:disabled)  { background: var(--fire); color: #0d1015; }
+button.cmd-safe:hover:not(:disabled)  { background: var(--safe); color: #0d1015; }
+
+button.link { background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+button.danger { color: var(--bad); }
+
+/* --- panels and forms --------------------------------------------------- */
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.15rem; }
+.panel h3 { margin: 0 0 0.6rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-dim); }
+
+dl.facts { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; }
+dl.facts dt { color: var(--ink-dim); font-size: 0.85rem; }
+dl.facts dd { margin: 0; font-size: 0.85rem; }
+
+form.filters { display: flex; gap: 0.7rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1rem; }
+form.filters label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.78rem; color: var(--ink-dim); }
+
+select, input[type="text"], input[type="number"], textarea {
+    font: inherit;
+    padding: 0.4rem 0.55rem;
+    background: var(--panel-2);
+    color: var(--ink);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+}
+textarea { width: 100%; resize: vertical; }
+
+.countdown { color: var(--armed); font-weight: 600; }
+
+/* --- log levels --------------------------------------------------------- */
+
+.level-panic, .level-error { color: var(--bad); font-weight: 600; }
+.level-warn { color: var(--warn); }
+.level-info { color: var(--ink); }
+.level-debug, .level-trace { color: var(--ink-dim); }

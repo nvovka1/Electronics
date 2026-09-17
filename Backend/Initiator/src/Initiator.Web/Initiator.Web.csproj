@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Initiator.Domain\Initiator.Domain.csproj" />
+    <ProjectReference Include="..\Initiator.DataAccess\Initiator.DataAccess.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>initiator-4f1b6d20-5c93-4a7e-9f28-3c0a7de51b84</UserSecretsId>
+  </PropertyGroup>
+
+</Project>

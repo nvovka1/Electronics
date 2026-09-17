@@ -1,0 +1,71 @@
+@model CommandListViewModel
+@{
+    ViewData["Title"] = "Commands";
+}
+
+<h1>Commands</h1>
+<p class="lede">
+    What has been queued from the dashboard, and what became of it. Commands sent from the
+    handheld controller are not here — they go straight over the radio — so this is half the
+    story and <a asp-controller="History" asp-action="Index">History</a> is the other half.
+</p>
+
+<form method="get" class="filters">
+    <label>
+        Device
+        <select name="serial">
+            <option value="">all</option>
+            @foreach (var serial in Model.KnownSerials)
+            {
+                <option value="@serial" selected="@(serial == Model.Serial)">@serial</option>
+            }
+        </select>
+    </label>
+    <label>
+        Limit
+        <input type="number" name="limit" value="@Model.Limit" min="1" max="500" style="width: 6rem;" />
+    </label>
+    <button type="submit" class="cmd">Apply</button>
+</form>
+
+@if (Model.Commands.Count == 0)
+{
+    <div class="empty">Nothing queued.</div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Queued</th><th>Device</th><th>Command</th><th>Against</th><th>Status</th><th>Resolved</th><th>Outcome</th></tr>
+        </thead>
+        <tbody>
+        @foreach (var command in Model.Commands)
+        {
+            <tr>
+                <td class="dim">@command.QueuedAt.ToString("MM-dd HH:mm:ss")</td>
+                <td><a asp-controller="Devices" asp-action="Details" asp-route-serial="@command.DeviceSerial">@command.DeviceSerial</a></td>
+                <td><strong>@Describe.Command(command.Type)</strong></td>
+                <td class="dim" title="The state the dashboard believed the node was in when this was queued.">
+                    @Describe.State(command.QueuedAgainstState)
+                </td>
+                <td><span class="pill pill-@command.Status.ToString().ToLowerInvariant()">@command.Status</span></td>
+                <td class="dim">@(command.ResolvedAt?.ToString("MM-dd HH:mm:ss") ?? "")</td>
+                <td class="dim">
+                    @if (command.Status == CommandStatus.Rejected)
+                    {
+                        @Describe.Reason(command.Reason)
+                    }
+                    else if (command.Status == CommandStatus.Expired)
+                    {
+                        <text>waited too long to be collected</text>
+                    }
+                    else
+                    {
+                        @command.Note
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

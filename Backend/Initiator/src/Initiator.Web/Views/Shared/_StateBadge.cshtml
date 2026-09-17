@@ -1,0 +1,7 @@
+@model NodeState
+@*
+    The colours match the LEDs on the node: blue SAFE, green INIT, yellow ARMED,
+    red FIRE. Deliberate - somebody looking at the board and somebody looking at
+    this page should be describing what they see in the same words.
+*@
+<span class="state state-@Model.ToString().ToLowerInvariant()">@Model.ToString().ToUpperInvariant()</span>

@@ -1,0 +1,65 @@
+@model StateHistoryViewModel
+@{
+    ViewData["Title"] = "History";
+}
+
+<h1>History</h1>
+<p class="lede">
+    Every transition every node has made — from the controller, from the dashboard, and the
+    ones the nodes made on their own. Refused commands are here too: they are usually the
+    interesting ones.
+</p>
+
+<form method="get" class="filters">
+    <label>
+        Device
+        <select name="serial">
+            <option value="">all</option>
+            @foreach (var serial in Model.KnownSerials)
+            {
+                <option value="@serial" selected="@(serial == Model.Serial)">@serial</option>
+            }
+        </select>
+    </label>
+    <label>
+        Limit
+        <input type="number" name="limit" value="@Model.Limit" min="1" max="1000" style="width: 6rem;" />
+    </label>
+    <button type="submit" class="cmd">Apply</button>
+</form>
+
+@if (Model.Events.Count == 0)
+{
+    <div class="empty">Nothing matches.</div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Received</th><th>Device</th><th>What happened</th><th>Source</th><th>From</th><th>To</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+        @foreach (var stateEvent in Model.Events)
+        {
+            <tr class="@(stateEvent.IsAutoArm ? "live" : "")">
+                <td class="dim">@stateEvent.ReceivedAt.ToString("MM-dd HH:mm:ss")</td>
+                <td><a asp-controller="Devices" asp-action="Details" asp-route-serial="@stateEvent.DeviceSerial">@stateEvent.DeviceSerial</a></td>
+                <td>@Describe.Transition(stateEvent)</td>
+                <td class="dim">@Describe.Source(stateEvent.Source)</td>
+                <td><partial name="_StateBadge" model="stateEvent.FromState" /></td>
+                <td><partial name="_StateBadge" model="stateEvent.ToState" /></td>
+                <td>
+                    @if (stateEvent.Accepted)
+                    {
+                        <span class="pill pill-applied">accepted</span>
+                    }
+                    else
+                    {
+                        <span class="pill pill-rejected">refused</span>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

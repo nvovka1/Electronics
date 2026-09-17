@@ -1,0 +1,67 @@
+@model DeviceListViewModel
+@{
+    ViewData["Title"] = "Devices";
+}
+
+<h1>Devices</h1>
+<p class="lede">
+    @Model.Devices.Count enrolled ·
+    @Model.LiveCount not in SAFE ·
+    @Model.AttentionCount needing attention.
+    Nodes enrol themselves on their first report.
+</p>
+
+@if (Model.Devices.Count == 0)
+{
+    <div class="empty">
+        No devices yet. A node enrols itself the first time it posts a health report —
+        there is nothing to add by hand.
+    </div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr>
+                <th>Serial</th>
+                <th>Node</th>
+                <th>State</th>
+                <th>Since</th>
+                <th>Health</th>
+                <th>Last seen</th>
+                <th class="num">Battery</th>
+                <th class="num">RSSI</th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var row in Model.Devices)
+        {
+            <tr class="@(row.NeedsAttention ? "attention" : row.IsLive ? "live" : "")">
+                <td><a asp-action="Details" asp-route-serial="@row.Device.Serial">@row.Device.Serial</a></td>
+                <td class="dim">@row.Device.NodeId</td>
+                <td><partial name="_StateBadge" model="row.Device.CurrentState" /></td>
+                <td class="dim">
+                    @Describe.Duration(DateTime.UtcNow - row.Device.StateChangedAt)
+                    @if (row.Device.AutoArmDueAt is not null)
+                    {
+                        <span class="countdown"> · arms itself soon</span>
+                    }
+                </td>
+                <td class="status status-@row.Status.ToString().ToLowerInvariant()">@row.Status</td>
+                <td class="dim">@Describe.Duration(row.Silence) ago</td>
+                <td class="num">
+                    @if (row.Device.LastHealth?.BatteryVolts is double volts)
+                    {
+                        @volts.ToString("0.0")<text> V</text>
+                    }
+                    else
+                    {
+                        <span class="dim" title="The node reported that its own ADC self-test failed, so the reading must not be believed.">untrusted</span>
+                    }
+                </td>
+                <td class="num dim">@(row.Device.LastHealth?.LastRssi ?? 0) dBm</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

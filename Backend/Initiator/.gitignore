@@ -1,0 +1,30 @@
+# Secrets. The connection string carries a database password.
+.env
+*.user
+
+# Build output
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+publish/
+*.binlog
+
+# IDE
+.vs/
+.idea/
+*.suo
+
+# The repository root .gitignore has `[Ll]ogs/` - a stock Visual Studio rule
+# meant for log OUTPUT directories. It also matches two source folders here:
+# src/Initiator.Domain/Logs/ and src/Initiator.Web/Views/Logs/. Without this
+# exclusion git drops them from every commit without saying so, and the project
+# builds on the machine that wrote it and fails in the container with "the
+# namespace Logs does not exist".
+#
+# Renaming is not an option for the view folder: ASP.NET MVC resolves
+# LogsController's views from Views/Logs/ by convention. So the exclusion is
+# lifted, scoped to the source tree - real log output would never live under
+# src/.
+!src/**/Logs/
+!src/**/Logs/**

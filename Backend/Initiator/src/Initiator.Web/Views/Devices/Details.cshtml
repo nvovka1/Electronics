@@ -1,0 +1,223 @@
+@model DeviceDetailsViewModel
+@{
+    ViewData["Title"] = Model.Device.Serial;
+    var device = Model.Device;
+    var health = device.LastHealth;
+}
+
+<h1>@device.Serial <partial name="_StateBadge" model="device.CurrentState" /></h1>
+<p class="lede">
+    Node @device.NodeId ·
+    <span class="status status-@Model.Status.ToString().ToLowerInvariant()">@Model.Status</span> ·
+    last seen @Describe.Duration(DateTime.UtcNow - device.LastSeenAt) ago ·
+    in @Describe.State(device.CurrentState) for @Describe.Duration(DateTime.UtcNow - device.StateChangedAt)
+    (@Describe.Source(device.StateSource))
+</p>
+
+@if (Model.AutoArmInSeconds is int seconds)
+{
+    <div class="notice ok">
+        <strong>Arms itself in about @Describe.Countdown(seconds).</strong>
+        This is an estimate — @device.AutoArmTimeoutSeconds s from when the node said it entered INIT.
+        The node runs the only countdown that decides anything, and it will report the auto-arm when it happens.
+    </div>
+}
+
+<h2>Command</h2>
+<form asp-action="Queue" method="post" class="commands">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="serial" value="@device.Serial" />
+    @foreach (var command in NodeStateMachine.AllCommands)
+    {
+        var allowed = Model.CanQueue(command);
+        <button type="submit"
+                name="command"
+                value="@command"
+                class="cmd cmd-@command.ToString().ToLowerInvariant()"
+                disabled="@(!allowed)"
+                title="@(allowed
+                          ? $"Queue {Describe.Command(command)} for collection on the node's next poll"
+                          : $"{Describe.State(device.CurrentState)} does not accept {Describe.Command(command)}")">
+            @Describe.Command(command)
+        </button>
+    }
+</form>
+<p class="dim" style="font-size: 0.85rem;">
+    Queued commands are collected by the node when it next polls, so there is a delay.
+    A greyed-out command is one this node's last known state would refuse — but the node
+    judges every command again against its own state, which can have moved on since it
+    last reported.
+</p>
+
+<div class="grid" style="margin-top: 1.5rem;">
+    <div class="panel">
+        <h3>Firmware</h3>
+        <dl class="facts">
+            <dt>Version</dt><dd>@device.FirmwareVersion @(device.FirmwareIsDirty ? "(dirty)" : "")</dd>
+            <dt>Hash</dt><dd class="mono">@device.FirmwareHash</dd>
+            <dt>Build</dt><dd>@device.BuildType</dd>
+            <dt>Hardware</dt><dd>@device.HardwareId</dd>
+            <dt>Protocol</dt><dd>v@device.ProtocolVersion</dd>
+        </dl>
+    </div>
+
+    <div class="panel">
+        <h3>Health</h3>
+        <dl class="facts">
+            <dt>Battery</dt>
+            <dd>
+                @if (health?.BatteryVolts is double volts)
+                {
+                    @volts.ToString("0.0")<text> V</text>
+                }
+                else
+                {
+                    <span class="dim">untrusted — the node's own ADC self-test failed</span>
+                }
+            </dd>
+            <dt>Self-test</dt>
+            <dd>@(health is null ? "never reported" : health.PostPassed ? "clean" : $"failed (0x{health.PostMask:X2})")</dd>
+            <dt>LoRa link</dt><dd>@(health?.LoraLinkUp == true ? "up" : "down")</dd>
+            <dt>RSSI</dt><dd>@(health?.LastRssi ?? 0) dBm</dd>
+            <dt>Uptime</dt><dd>@Describe.Duration(TimeSpan.FromSeconds(health?.UptimeSeconds ?? 0))</dd>
+            <dt>Reboots</dt><dd>@(health?.Reboots ?? 0)</dd>
+        </dl>
+    </div>
+
+    <div class="panel">
+        <h3>Notes</h3>
+        <form asp-action="Notes" method="post">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="serial" value="@device.Serial" />
+            <textarea name="notes" rows="3" placeholder="Where it is, which shot, who to call">@device.Notes</textarea>
+            <button type="submit" class="cmd" style="margin-top: 0.5rem;">Save</button>
+        </form>
+    </div>
+</div>
+
+<h2>Transitions</h2>
+@if (Model.RecentEvents.Count == 0)
+{
+    <div class="empty">Nothing reported yet.</div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Received</th><th>Node clock</th><th>What happened</th><th>Source</th><th>Result</th></tr>
+        </thead>
+        <tbody>
+        @foreach (var stateEvent in Model.RecentEvents)
+        {
+            <tr>
+                <td class="dim">@stateEvent.ReceivedAt.ToString("MM-dd HH:mm:ss")</td>
+                <td class="dim mono" title="Milliseconds since that node booted — not wall-clock time.">
+                    @stateEvent.TimestampMs ms / boot @stateEvent.BootCount
+                </td>
+                <td>@Describe.Transition(stateEvent)</td>
+                <td class="dim">@Describe.Source(stateEvent.Source)</td>
+                <td>
+                    @if (stateEvent.Accepted)
+                    {
+                        <span class="pill pill-applied">accepted</span>
+                    }
+                    else
+                    {
+                        <span class="pill pill-rejected">refused</span>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+<h2>Queued commands</h2>
+@if (Model.RecentCommands.Count == 0)
+{
+    <div class="empty">Nothing has been queued from the dashboard for this node.</div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Queued</th><th>Command</th><th>Against</th><th>Status</th><th>Outcome</th><th></th></tr>
+        </thead>
+        <tbody>
+        @foreach (var command in Model.RecentCommands)
+        {
+            <tr>
+                <td class="dim">@command.QueuedAt.ToString("MM-dd HH:mm:ss")</td>
+                <td><strong>@Describe.Command(command.Type)</strong></td>
+                <td class="dim">@Describe.State(command.QueuedAgainstState)</td>
+                <td><span class="pill pill-@command.Status.ToString().ToLowerInvariant()">@command.Status</span></td>
+                <td class="dim">
+                    @(command.Status == CommandStatus.Rejected ? Describe.Reason(command.Reason) : "")
+                    @(command.Note)
+                </td>
+                <td>
+                    @if (command.IsOutstanding)
+                    {
+                        <form asp-action="CancelCommand" method="post" style="display:inline;">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="serial" value="@device.Serial" />
+                            <input type="hidden" name="commandId" value="@command.Id" />
+                            <button type="submit" class="link">withdraw</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+<h2>Recent log</h2>
+@if (Model.RecentLogs.Count == 0)
+{
+    <div class="empty">No log records from this node.</div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Received</th><th>Level</th><th>Tag</th><th>Code</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
+        @foreach (var record in Model.RecentLogs)
+        {
+            <tr>
+                <td class="dim">@record.ReceivedAt.ToString("MM-dd HH:mm:ss")</td>
+                <td class="level-@record.LevelName.ToLowerInvariant()">@record.LevelName</td>
+                <td class="dim">@record.TagName</td>
+                <td class="mono">@record.CodeName</td>
+                <td class="dim">@record.ArgDescription</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+    <p><a asp-controller="Logs" asp-action="Index" asp-route-serial="@device.Serial">All log records for @device.Serial →</a></p>
+}
+
+<h2>Retire</h2>
+<div class="panel">
+    <form asp-action="Decommission" method="post" style="display:inline;">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="serial" value="@device.Serial" />
+        <input type="hidden" name="isDecommissioned" value="@((!device.IsDecommissioned).ToString().ToLowerInvariant())" />
+        <button type="submit" class="link">
+            @(device.IsDecommissioned ? "Return to service" : "Mark decommissioned")
+        </button>
+    </form>
+    <span class="dim"> · </span>
+    <form asp-action="Delete" method="post" style="display:inline;"
+          onsubmit="return confirm('Delete @device.Serial and its entire history — transitions, commands and logs? This cannot be undone.');">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="serial" value="@device.Serial" />
+        <button type="submit" class="link danger">Delete device and history</button>
+    </form>
+    <p class="dim" style="font-size: 0.85rem; margin-bottom: 0;">
+        Deleting removes the transitions and logs too, so a future node enrolling with the same
+        serial does not inherit this one's record. It will re-enrol by itself if it checks in again.
+    </p>
+</div>

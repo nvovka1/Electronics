@@ -1,0 +1,14 @@
+@model ErrorViewModel
+@{
+    ViewData["Title"] = "Error";
+}
+
+<h1>Something went wrong</h1>
+<p class="lede">The request could not be completed.</p>
+
+@if (Model.ShowRequestId)
+{
+    <p>Request ID: <span class="mono">@Model.RequestId</span></p>
+}
+
+<p><a asp-controller="Devices" asp-action="Index">Back to devices</a></p>

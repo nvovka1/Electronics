@@ -1,0 +1,76 @@
+@model LogListViewModel
+@{
+    ViewData["Title"] = "Logs";
+}
+
+<h1>Logs</h1>
+<p class="lede">
+    @Model.Records.Count shown of @Model.TotalMatching matching. Nodes send codes rather than
+    sentences — twelve bytes a record instead of about sixty — so the text here is
+    reconstructed from the same dictionary that ships with the firmware.
+</p>
+
+<form method="get" class="filters">
+    <label>
+        Device
+        <select name="serial">
+            <option value="">all</option>
+            @foreach (var serial in Model.KnownSerials)
+            {
+                <option value="@serial" selected="@(serial == Model.Serial)">@serial</option>
+            }
+        </select>
+    </label>
+    <label>
+        Severity
+        <select name="maxLevel">
+            <option value="">all</option>
+            @foreach (var level in LogDictionary.AllLevels)
+            {
+                <option value="@level.Key" selected="@(Model.MaxLevel == level.Key)">@level.Value and worse</option>
+            }
+        </select>
+    </label>
+    <label>
+        Tag
+        <select name="tag">
+            <option value="">all</option>
+            @foreach (var tag in LogDictionary.AllTags)
+            {
+                <option value="@tag.Key" selected="@(Model.Tag == tag.Key)">@tag.Value</option>
+            }
+        </select>
+    </label>
+    <label>
+        Limit
+        <input type="number" name="limit" value="@Model.Limit" min="1" max="2000" style="width: 6rem;" />
+    </label>
+    <button type="submit" class="cmd">Apply</button>
+</form>
+
+@if (Model.Records.Count == 0)
+{
+    <div class="empty">Nothing matches.</div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Received</th><th>Node clock</th><th>Device</th><th>Level</th><th>Tag</th><th>Code</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
+        @foreach (var record in Model.Records)
+        {
+            <tr>
+                <td class="dim">@record.ReceivedAt.ToString("MM-dd HH:mm:ss")</td>
+                <td class="dim mono" title="Milliseconds since that node booted — not wall-clock time, and not comparable across a reboot.">@record.TimestampMs</td>
+                <td><a asp-controller="Devices" asp-action="Details" asp-route-serial="@record.DeviceSerial">@record.DeviceSerial</a></td>
+                <td class="level-@record.LevelName.ToLowerInvariant()">@record.LevelName</td>
+                <td class="dim">@record.TagName</td>
+                <td class="mono">@record.CodeName</td>
+                <td class="dim">@record.ArgDescription</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

@@ -1,0 +1,41 @@
+@{
+    var section = ViewContext.RouteData.Values["controller"]?.ToString() ?? "Devices";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] · Initiator</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" asp-controller="Devices" asp-action="Index">Initiator</a>
+        <nav>
+            <a asp-controller="Devices" asp-action="Index" class="@(section == "Devices" ? "active" : "")">Devices</a>
+            <a asp-controller="History" asp-action="Index" class="@(section == "History" ? "active" : "")">History</a>
+            <a asp-controller="Commands" asp-action="Index" class="@(section == "Commands" ? "active" : "")">Commands</a>
+            <a asp-controller="Logs" asp-action="Index" class="@(section == "Logs" ? "active" : "")">Logs</a>
+        </nav>
+    </header>
+
+    <main>
+        @if (TempData["Message"] is string message)
+        {
+            <div class="notice ok">@message</div>
+        }
+        @if (TempData["Error"] is string error)
+        {
+            <div class="notice bad">@error</div>
+        }
+
+        @RenderBody()
+    </main>
+
+    <footer>
+        <span>Init · Arm · Fire · Safe</span>
+        <span>@DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm") UTC</span>
+    </footer>
+</body>
+</html>
