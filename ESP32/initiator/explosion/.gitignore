@@ -1,0 +1,12 @@
+# PlatformIO build output and downloaded dependencies.
+.pio/
+
+# Reserved. There is no build-time secrets file yet - the key comes from
+# fleet.ini or from `set key` over the cable - but this keeps one from being
+# committed by accident if somebody adds the mechanism.
+secrets.local.ini
+
+# IDE
+.vscode/
+.idea/
+*.suo

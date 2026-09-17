@@ -1,0 +1,10 @@
+# PlatformIO build output and downloaded dependencies.
+.pio/
+
+# This board has no API key and no fleet file - it never talks to the backend.
+
+
+# IDE
+.vscode/
+.idea/
+*.suo

@@ -5,7 +5,15 @@ nodes in [`ESP32/initiator`](../../ESP32/initiator).
 
 ASP.NET Core 9 MVC · MongoDB · Docker.
 
+**Live: <https://initiator-70pm.onrender.com/>**
+
 Design: [`docs/superpowers/specs/2026-09-17-initiator-system-design.md`](../../docs/superpowers/specs/2026-09-17-initiator-system-design.md).
+
+> **Free-plan sleep.** The instance sleeps after roughly 15 minutes without
+> traffic and takes tens of seconds to wake. A node posting into a sleeping
+> instance sees its request time out, so give the firmware a generous HTTP
+> timeout and a retry, and do not treat one failed report as the node being
+> broken.
 
 ---
 
@@ -120,6 +128,9 @@ Root Directory. With the repository root as the context every `COPY` fails with
 | Runtime | Docker |
 | Dockerfile Path | `src/Initiator.Web/Dockerfile` |
 | Health Check Path | `/healthz` |
+
+The deployed instance is <https://initiator-70pm.onrender.com/> — a different
+Render service from LoraFleet's, with its own database.
 
 Two variables are prompted for rather than committed:
 
