@@ -39,10 +39,22 @@ constexpr int8_t OledResetPin = -1;
 constexpr uint8_t ButtonSequencePin = 0;
 
 // Sends SAFE, from any state, always. Nothing else is on this pin.
-constexpr uint8_t ButtonSafePin = 32;
+//
+// On 13 rather than 36 deliberately: 13 has a working internal pull-up and 36
+// does not, so this is the one of the two that cannot be made unreliable by a
+// missing resistor. SAFE is the button that has to work.
+constexpr uint8_t ButtonSafePin = 13;
 
 // Cycles which node is being commanded.
-constexpr uint8_t ButtonTargetPin = 33;
+//
+// GPIO 36 IS INPUT-ONLY AND HAS NO INTERNAL PULL-UP. It reads a button
+// perfectly well, but INPUT_PULLUP below is silently ignored on it, so this pin
+// needs an EXTERNAL 10k resistor to 3V3. Without one it floats and reads noise:
+// usually stuck, sometimes a phantom target change.
+constexpr uint8_t ButtonTargetPin = 36;
+
+// NOT GPIO 32 or 33: on this board revision they are the 32.768 kHz crystal and
+// are not broken out at all.
 
 // GPIO 0 is a strapping pin: held LOW at reset it enters the bootloader instead
 // of running. That is what the button is for, so it is not a problem - but it

@@ -10,14 +10,21 @@ One LED per state, and exactly one is lit at any moment. The colours match the
 badges on the dashboard on purpose — the person at the board and the person at
 the screen should describe what they see in the same words.
 
-| State | Colour | Board pin | Series resistor |
-|---|---|---|---|
-| SAFE | blue | **GPIO 32** | 330 Ω |
-| INIT | green | **GPIO 33** | 220 Ω |
-| ARMED | yellow | **GPIO 2** | 220 Ω |
-| FIRE | red | **GPIO 14** | 220 Ω |
+| State | Colour | Board pin | Resistor | Wiring |
+|---|---|---|---|---|
+| SAFE | blue | **GPIO 13** | 330 Ω | anode → pin, cathode → GND |
+| INIT | green | **GPIO 2** | 220 Ω | anode → pin, cathode → GND |
+| ARMED | yellow | **GPIO 14** | 220 Ω | anode → pin, cathode → GND |
+| FIRE | red | **GPIO 0** | 220 Ω | **anode → 3.3 V, cathode → pin** |
 
-Anode (long leg) to the pin through the resistor, cathode (short leg) to **GND**.
+Three are wired the ordinary way: anode (long leg) to the pin through the
+resistor, cathode (short leg) to GND.
+
+**The red one is wired backwards, and it has to be** — anode to **3.3 V**,
+cathode through the resistor to GPIO 0. With a LED to GND on that pin the board
+does not run at all; see *GPIO 0* below. The firmware knows: `LedFireActiveLow`
+in [src/board_pins.h](src/board_pins.h) is what tells it, and it drives that pin
+LOW to light the LED.
 
 The resistor values assume ordinary 20 mA indicator LEDs at 3.3 V. Red, yellow
 and green drop about 2 V, so 220 Ω gives roughly 6 mA — bright enough indoors
@@ -33,10 +40,36 @@ used anywhere in this firmware and must not be.
 
 **GPIO 6–11.** SPI flash.
 
-**GPIO 34–39** are input-only, so they cannot drive a LED. GPIO 35 is already
+**GPIO 34–39** are **input-only**. There is no output driver in the silicon, so
+`pinMode(OUTPUT)` is a silent no-op and `digitalWrite` does nothing. A LED on
+one of these never lights and nothing anywhere reports a fault. GPIO 35 is also
 the battery divider.
 
+**GPIO 32 and 33** are the 32.768 kHz crystal on this board revision and are not
+broken out at all — if you cannot find them on the silkscreen, that is why.
+
 ## Pins used here that are worth knowing about
+
+**GPIO 0 is the boot strapping pin, and that is why the red LED is backwards.**
+
+With an ordinary LED to GND the board never runs. The on-board 10 kΩ pull-up can
+only source about 330 µA, the LED clamps the pin near 1.6 V, and the ESP32 needs
+above 2.48 V to read high at reset. So GPIO 0 is LOW when reset is released and
+the chip comes up in **serial download mode** instead of starting the firmware —
+no radio, no ACK, and a board that looks perfectly alive.
+
+Flashing still appears to work in that state, because the board is already in
+the mode the flasher wants. A successful upload therefore does **not** prove the
+pin is wired correctly. The test is that the board boots: the OLED draws and the
+blue SAFE LED comes on within a second of reset.
+
+Wired anode-to-3.3 V the LED becomes a pull-up instead, the pin reads HIGH at
+reset, and the board boots normally.
+
+One cost: GPIO 0 is also the on-board PRG button, which shorts it to GND.
+Pressing PRG while the pin is driven HIGH (red off) shorts the output. It
+survives a brief press, but it is a reason not to press PRG while the node is
+running.
 
 **GPIO 2 is a strapping pin.** It must not be held HIGH while the board boots. A
 LED to GND is the safe direction: it presents no pull-up, and the pin stays an

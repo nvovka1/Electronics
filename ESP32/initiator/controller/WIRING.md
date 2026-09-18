@@ -8,16 +8,26 @@ wiring.
 
 The third is already there — the on-board **PRG** button is the sequence button.
 
-| Button | Board pin | Job |
-|---|---|---|
-| SEQ | **GPIO 0** (on-board PRG) | advance INIT → ARM → FIRE |
-| SAFE | **GPIO 32** | send SAFE, always |
-| TARGET | **GPIO 33** | cycle which node is commanded |
+| Button | Board pin | Job | Extra part |
+|---|---|---|---|
+| SEQ | **GPIO 0** (on-board PRG) | advance INIT → ARM → FIRE | none |
+| SAFE | **GPIO 13** | send SAFE, always | none |
+| TARGET | **GPIO 36** | cycle which node is commanded | **10 kΩ to 3.3 V** |
 
-Wire each added button **between the pin and GND**. Nothing else: the pins are
-configured `INPUT_PULLUP`, so the internal pull-up holds them high and the
-button pulls them low. No external resistor, and **no pull-up of your own** —
-two pull-ups fighting is a button that reads as half-pressed.
+Wire each added button **between the pin and GND**.
+
+GPIO 13 needs nothing else: it is configured `INPUT_PULLUP`, so the internal
+pull-up holds it high and the button pulls it low. Do not add a pull-up of your
+own there — two pull-ups fighting is a button that reads as half-pressed.
+
+**GPIO 36 is the exception and it needs one resistor.** It is an input-only pin
+with *no internal pull-up at all*, so `INPUT_PULLUP` is silently ignored and the
+pin floats. Add a **10 kΩ resistor between GPIO 36 and 3.3 V** and it behaves
+exactly like the other two. Without it, TARGET reads noise — usually stuck,
+occasionally changing target on its own.
+
+SAFE is on 13 rather than 36 on purpose: it is the button that has to work, so
+it gets the pin that cannot be broken by a missing resistor.
 
 A momentary push-to-make switch of any size. Debounce is in software
 (`ButtonDebounceMs`, 40 ms), so no capacitor is needed.
@@ -30,6 +40,15 @@ colour, a different size, or physically separated from the other two. The
 firmware does not care; the person holding it at the wrong moment does.
 
 ## Pins you must not use
+
+**GPIO 32 and 33** — the 32.768 kHz crystal on this board revision, and not
+broken out at all. If you cannot find them on the silkscreen, that is why.
+
+**GPIO 34–39** — these read inputs, but they have **no internal pull-up**.
+`INPUT_PULLUP` is silently ignored, the pin floats, and the button reads noise:
+usually stuck, sometimes phantom presses. One of them can be used with an
+external 10 kΩ resistor to 3.3 V; GPIO 13 and 14 need nothing, which is why they
+are the ones here.
 
 **GPIO 16** — embedded flash chip select on the PICO-D4. Driving it hangs the
 board in a silent watchdog reboot loop and it looks bricked.
