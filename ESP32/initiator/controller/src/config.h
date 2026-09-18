@@ -14,8 +14,8 @@
 constexpr uint16_t DefaultNodeId = 100; // controllers are numbered from 100
 constexpr uint16_t DefaultTargetId = 1;
 
-// BTN_TARGET cycles through 1..this. Raise it with `set targets <n>` when there
-// are more nodes than that in the field.
+// The TARGET button cycles 1..this. Raise it with `set targets <n>` when there
+// are more nodes in the field than that.
 constexpr uint16_t DefaultMaxTargetId = 4;
 
 // --- radio ----------------------------------------------------------------
@@ -26,7 +26,20 @@ constexpr long LoraFrequencyHz = 868E6;
 constexpr int LoraSpreadingFactor = 7;
 constexpr long LoraSignalBandwidthHz = 125E3;
 constexpr uint8_t LoraSyncWord = 0x12;
-constexpr int LoraTxPowerDbm = 17;
+
+// 17 dBm is ~50 mW, which is what you want between two boards in the field.
+//
+// ON A DESK IT IS TOO MUCH. At a metre the receiver sees something like -10 dBm
+// where its front end expects -60 or lower, and an overloaded receiver does not
+// fail cleanly - it drops packets at random. That looks exactly like a flaky
+// link or a firmware bug: sometimes it works, sometimes three retries in a row
+// are lost, and nothing in the log explains it.
+//
+// Drop this to 2 while both boards are on the same bench, and put it back
+// before anything goes outside. It must be changed in the node's config.h too:
+// the two only have to match to talk, but a loud node and a quiet controller
+// fails in one direction only, which is even more confusing to debug.
+constexpr int LoraTxPowerDbm = 2;
 
 // How long to wait for the ACK before sending again, and how many times to try
 // in total. Three attempts at 700 ms is about two seconds before the controller

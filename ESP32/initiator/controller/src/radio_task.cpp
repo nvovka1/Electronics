@@ -20,6 +20,7 @@ QueueHandle_t rxQueue = nullptr;
 bool ready = false;
 uint16_t txSequence = 0;
 int lastRssi = 0;
+int txPowerDbm = LoraTxPowerDbm;
 
 // Guards the driver between the command task's transmit and the radio task's
 // receive. The one place in this firmware where two tasks touch the same thing,
@@ -197,3 +198,20 @@ void radioDrain() {
 }
 
 int radioLastRssi() { return lastRssi; }
+
+void radioSetTxPower(int dbm) {
+  if (dbm < 2) dbm = 2;   // PA_BOOST cannot go lower; the library clamps anyway
+  if (dbm > 17) dbm = 17; // above this needs the high-power register dance
+
+  // Through the lock: this writes the radio's registers, and doing that while
+  // the task is mid-parse is how a driver ends up in a state nobody can
+  // reproduce.
+  xSemaphoreTake(radioLock, portMAX_DELAY);
+  LoRa.setTxPower(dbm);
+  LoRa.receive();
+  xSemaphoreGive(radioLock);
+
+  txPowerDbm = dbm;
+}
+
+int radioTxPower() { return txPowerDbm; }

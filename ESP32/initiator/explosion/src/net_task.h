@@ -10,3 +10,10 @@
 void netTaskStart();
 
 bool netIsConnected();
+
+// Lifts the after-a-brownout hold on the WiFi radio without a reboot, for when
+// you have just fixed the supply and want to see it come up.
+void netEnableWifi();
+
+// True when WiFi is being kept off because the last reset was a brownout.
+bool netWifiHeldOff();

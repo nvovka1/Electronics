@@ -12,6 +12,22 @@
 
 namespace {
 
+int lastHttpStatus = 0;
+
+// FILE SCOPE, NOT A STACK LOCAL, and this is the whole reason the node could
+// not reach the service.
+//
+// A WiFiClientSecure is a small object that anchors mbedTLS contexts several
+// kilobytes in size, and those contexts have to outlive the HTTPClient using
+// them. Built on the task stack it blocks inside the handshake and never comes
+// back: the request goes out, no timeout fires, and the task simply stops - the
+// heartbeat beside it stops in the same millisecond. Stack headroom looks fine
+// right up to the call, because the damage is done inside it.
+//
+// Only the net task ever calls into this file, so one client is enough and
+// there is nothing to lock.
+WiFiClientSecure tls;
+
 // The battery sits on a 100k/100k divider from VBAT on ADC1. Zero is not a flat
 // battery: it is this node saying it could not take a reading it trusts, and
 // the backend renders it as "untrusted" rather than as empty.
@@ -25,32 +41,72 @@ int batteryDeciVolts() {
 
 // One place that knows how to talk to the service. Returns the HTTP status, or
 // a negative HTTPClient error.
+// Distinct negative codes for the two ways this can fail before a request is
+// ever sent. They existed as a bare "return -1" that never reached
+// lastHttpStatus, so the screen and the log both showed "nothing attempted yet"
+// for a request that had already failed - which is the worst possible way to
+// report a failure, because it looks like patience is the answer.
+constexpr int StatusNoWifi = -101;
+constexpr int StatusBadUrl = -102;
+
 int request(const char *method, const String &path, const String &body, String *response) {
-  if (WiFi.status() != WL_CONNECTED) return -1;
+  if (WiFi.status() != WL_CONNECTED) {
+    lastHttpStatus = StatusNoWifi;
+    return StatusNoWifi;
+  }
 
   // The certificate is not checked. Worth being plain about: this protects the
   // API key and the traffic from passive capture, not from someone who can
-  // stand in the middle. Pinning the root would need the CA bundle kept in step
-  // with whatever the host rotates to, and a node that silently stops reporting
-  // the day a certificate changes is its own failure. The key is the weak part
-  // of this system either way, which is why it guards nothing destructive.
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(HttpTimeoutMs / 1000);
+  // stand in the middle. The key is the weak part of this system either way,
+  // which is why it guards nothing destructive.
+  tls.setInsecure();
+  tls.setTimeout(HttpTimeoutMs / 1000);
+
+  // Separate from setTimeout above. Its default is two minutes, during which a
+  // stalled handshake is indistinguishable from a dead task.
+  tls.setHandshakeTimeout(TlsHandshakeTimeoutSeconds);
 
   HTTPClient http;
   http.setTimeout(HttpTimeoutMs);
   http.setConnectTimeout(HttpTimeoutMs);
 
+  // No connection reuse, and no redirect following. A redirect would carry the
+  // API key to whatever host the response names, which is a credential leak one
+  // misconfigured proxy away.
+  http.setReuse(false);
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+
   const String url = String(settings.baseUrl) + path;
-  if (!http.begin(client, url)) return -1;
+
+  if (!http.begin(tls, url)) {
+    // Almost always the base URL: empty, missing the scheme, or with something
+    // stored in NVS that nobody remembers putting there.
+    lastHttpStatus = StatusBadUrl;
+    LOG_ERROR(TagNet, CodeReportFail, StatusBadUrl);
+    return StatusBadUrl;
+  }
 
   http.addHeader("X-Api-Key", settings.apiKey);
   http.addHeader("Content-Type", "application/json");
 
+  // Logged BEFORE the call, and in request() rather than in each caller, so
+  // every path is covered. A request that hangs or takes the task down with it
+  // writes nothing on the way out - and the absence of a line then reads as
+  // "it never tried", which is a completely different fault from "it tried and
+  // nothing came back". Three minutes of silence after wifi_up looked like the
+  // first and was the second.
+  LOG_INFO(TagNet, CodeReportTry, (int32_t)body.length());
+
+  // TLS wants tens of kilobytes of heap for its buffers and certificates. When
+  // there is not enough it does not say so politely, so the number is recorded
+  // here where it can be compared across attempts.
+  LOG_INFO(TagNet, CodeHeapFree, (int32_t)ESP.getFreeHeap());
+
   const int status = (strcmp(method, "GET") == 0)
                          ? http.GET()
                          : http.sendRequest(method, (uint8_t *)body.c_str(), body.length());
+
+  lastHttpStatus = status;
 
   if (response != nullptr && status > 0) *response = http.getString();
 
@@ -232,3 +288,5 @@ bool fleetPollCommand(PolledCommand *out) {
   LOG_INFO(TagNet, CodeCmdPolled, out->command);
   return true;
 }
+
+int fleetLastHttpStatus() { return lastHttpStatus; }

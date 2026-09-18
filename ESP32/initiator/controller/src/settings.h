@@ -11,7 +11,7 @@
 struct Settings {
   uint16_t nodeId;      // this controller's own address, the SRC in every frame
   uint16_t targetId;    // the node currently being commanded
-  uint16_t maxTargetId; // BTN_TARGET cycles 1..this
+  uint16_t maxTargetId; // the TARGET button cycles 1..this
   uint32_t bootCount;
 };
 

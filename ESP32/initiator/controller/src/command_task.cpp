@@ -58,6 +58,10 @@ void sendCommand(command_t command) {
   lastReason = REASON_OK;
   lastWasAnnounced = false;
 
+  // Once, before the first attempt. Anything queued now predates this command
+  // and can only confuse the wait.
+  radioDrain();
+
   for (uint8_t attempt = 1; attempt <= SendAttempts; attempt++) {
     // SAFE has been pressed. Abandon whatever this was and let it through -
     // making somebody wait two seconds for a failing FIRE to run out of
@@ -66,6 +70,11 @@ void sendCommand(command_t command) {
     //
     // Not checked for a SAFE command itself, or it would abandon itself.
     if (command != COMMAND_SAFE && buttonSafePending()) {
+      // Logged, and at WARN. Without this the command simply stops appearing in
+      // the log part way through its retries, which reads as a firmware fault
+      // rather than as the one thing the operator asked for.
+      LOG_WARN(TagButton, CodeSafeAbort, (int32_t)command);
+
       lastResult = ResultLost;
       belief = BELIEF_LOST;
       publishUi();
@@ -74,12 +83,18 @@ void sendCommand(command_t command) {
 
     lastAttempts = attempt;
 
-    // Anything already queued is from before this command. The counter check
-    // below would reject it, but draining first keeps a stale ACK from being
-    // counted as this one's attempt.
-    radioDrain();
+    // NOT drained here, only before the first attempt. Draining between
+    // attempts throws away an ACK that arrived a little after its deadline -
+    // and that ACK is for this same counter, so it would have answered the
+    // command. Discarding it guarantees the retry, and the retry is then
+    // refused by the node as a replay. The counter check below is what keeps a
+    // genuinely stale ACK out; the drain was doing harm on top of it.
 
     if (!radioSendCommand(settings.targetId, (uint8_t)command, counter)) {
+      // The radio never came up. Worth its own line: it looks identical to "the
+      // node is not answering" on the screen, and it is a completely different
+      // fault.
+      LOG_ERROR(TagRadio, CodeRadioBusy, (int32_t)command);
       lastResult = ResultLost;
       belief = BELIEF_LOST;
       publishUi();
@@ -121,7 +136,12 @@ void sendCommand(command_t command) {
       lastReason = received.reason;
       lastResult = received.accepted ? ResultAccepted : ResultRefused;
 
-      LOG_INFO(TagRadio, CodeAckRx, (int32_t)received.state);
+      if (received.accepted) {
+        LOG_INFO(TagRadio, CodeCmdAccepted, (int32_t)received.state);
+      } else {
+        LOG_WARN(TagRadio, CodeCmdRefused, (int32_t)received.reason);
+      }
+
       publishUi();
       return;
     }
@@ -133,6 +153,8 @@ void sendCommand(command_t command) {
   // rather than being guessed forward: the command may well have arrived and
   // only the ACK been lost, so the node could be in either state. The next
   // command's ACK settles it.
+  LOG_WARN(TagRadio, CodeCmdLost, SendAttempts);
+
   lastResult = ResultLost;
   belief = BELIEF_LOST;
   publishUi();
@@ -159,6 +181,11 @@ void handleTargetButton() {
   if (next > settings.maxTargetId) next = 1;
 
   settingsSaveTargetId(next);
+
+  // INFO, not DEBUG. Re-aiming a controller is not a small thing: after it,
+  // every command goes somewhere else, and a node that is not the target hears
+  // each one and says nothing - which reads as a dead link. This line is what
+  // tells you the link was never the problem.
   LOG_INFO(TagCfg, CodeTargetChanged, next);
 
   // A different node, so everything believed about the last one is now about

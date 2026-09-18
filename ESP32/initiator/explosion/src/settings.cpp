@@ -19,6 +19,18 @@ constexpr const char *ReplayNamespace = "replay";
 Preferences nodePrefs;
 Preferences netPrefs;
 
+// Reads a stored string, or the build-time default if nothing is stored.
+//
+// Via isKey() rather than getString(key, fallback), which does the same job but
+// logs "nvs_get_str len fail: ssid NOT_FOUND" at ERROR level on the way. That
+// message is harmless - it only means the node has never been configured and is
+// using what the image was built with - but it appears four times at every boot
+// and looks exactly like a real fault, which is worse than useless when
+// somebody is reading the log to find one.
+String readStored(Preferences &prefs, const char *key, const char *fallback) {
+  return prefs.isKey(key) ? prefs.getString(key) : String(fallback);
+}
+
 void copyInto(char *destination, size_t capacity, const char *source) {
   if (source == nullptr) {
     destination[0] = '\0';
@@ -45,7 +57,7 @@ void settingsLoad() {
   settings.nodeId = nodePrefs.getUShort("node_id", DefaultNodeId);
   settings.autoArmSeconds = nodePrefs.getULong("autoarm", DefaultAutoArmSeconds);
 
-  String storedSerial = nodePrefs.getString("serial", "");
+  String storedSerial = readStored(nodePrefs, "serial", "");
   if (storedSerial.length() > 0) {
     copyInto(settings.serial, sizeof(settings.serial), storedSerial.c_str());
   } else {
@@ -55,13 +67,13 @@ void settingsLoad() {
   // The build-time values are defaults, not settings: anything stored wins, and
   // nothing here is ever written back to NVS.
   copyInto(settings.ssid, sizeof(settings.ssid),
-           netPrefs.getString("ssid", NET_DEFAULT_SSID).c_str());
+           readStored(netPrefs, "ssid", NET_DEFAULT_SSID).c_str());
   copyInto(settings.password, sizeof(settings.password),
-           netPrefs.getString("pass", NET_DEFAULT_PASS).c_str());
+           readStored(netPrefs, "pass", NET_DEFAULT_PASS).c_str());
   copyInto(settings.baseUrl, sizeof(settings.baseUrl),
-           netPrefs.getString("url", NET_DEFAULT_URL).c_str());
+           readStored(netPrefs, "url", NET_DEFAULT_URL).c_str());
   copyInto(settings.apiKey, sizeof(settings.apiKey),
-           netPrefs.getString("key", NET_DEFAULT_KEY).c_str());
+           readStored(netPrefs, "key", NET_DEFAULT_KEY).c_str());
 
   // Some proxies redirect a doubled slash and others refuse it, so a trailing
   // one is removed here rather than at every call site.
@@ -69,6 +81,9 @@ void settingsLoad() {
   while (urlLength > 0 && settings.baseUrl[urlLength - 1] == '/') {
     settings.baseUrl[--urlLength] = '\0';
   }
+
+  settings.wifiEnabled = netPrefs.getBool("wifi_on", true);
+  settings.wifiTxPowerDbm = (int8_t)netPrefs.getChar("wifi_pwr", WifiTxPowerDbm);
 
   settings.bootCount = nodePrefs.getULong("boots", 0) + 1;
   nodePrefs.putULong("boots", settings.bootCount);
@@ -115,6 +130,26 @@ bool settingsSaveApiKey(const char *key) {
   // The key itself is never logged, only that one was set and how long it was.
   LOG_AT(ok ? LevelInfo : LevelError, TagCfg, ok ? CodeCfgSaved : CodeCfgSaveFail,
          (int32_t)strlen(settings.apiKey));
+  return ok;
+}
+
+bool settingsSaveWifiEnabled(bool enabled) {
+  settings.wifiEnabled = enabled;
+  const bool ok = netPrefs.putBool("wifi_on", enabled);
+  LOG_AT(ok ? LevelInfo : LevelError, TagCfg, ok ? CodeCfgSaved : CodeCfgSaveFail,
+         enabled ? 1 : 0);
+  return ok;
+}
+
+bool settingsSaveWifiTxPower(int8_t dbm) {
+  // The driver takes 2..20 dBm; below that it clamps and above it is not a
+  // setting this board can honour.
+  if (dbm < 2) dbm = 2;
+  if (dbm > 20) dbm = 20;
+
+  settings.wifiTxPowerDbm = dbm;
+  const bool ok = netPrefs.putChar("wifi_pwr", dbm) > 0;
+  LOG_AT(ok ? LevelInfo : LevelError, TagCfg, ok ? CodeCfgSaved : CodeCfgSaveFail, dbm);
   return ok;
 }
 

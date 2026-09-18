@@ -71,7 +71,10 @@ void poll(Button &button) {
 
   button.acceptedAtMs = now;
 
-  LOG_DEBUG(TagButton, CodeButtonPressed, button.id);
+  // INFO, not DEBUG. A press is the whole reason this board exists, there are
+  // at most a few a minute, and a field build keeps INFO - so "did the operator
+  // actually press it" is answerable from any image, not just a bench one.
+  LOG_INFO(TagButton, CodeButtonPressed, button.id);
 
   // Raised here rather than waited for, so a retry loop already in progress can
   // see it immediately instead of after the queue is next read.
@@ -82,7 +85,13 @@ void poll(Button &button) {
   // Never blocks. A full queue means the command task is busy sending, and the
   // right answer to "the operator pressed again while we were transmitting" is
   // to drop the extra press rather than to queue it up and act on it late.
-  xQueueSend(buttonQueue, &event, 0);
+  //
+  // Dropped loudly, though. A press that vanishes with no trace is the worst
+  // thing this firmware can do to somebody trying to work out why a button did
+  // nothing - and for SAFE it is worse than that.
+  if (xQueueSend(buttonQueue, &event, 0) != pdTRUE) {
+    LOG_ERROR(TagButton, CodePressDropped, button.id);
+  }
 }
 
 void buttonTask(void *) {
@@ -100,9 +109,28 @@ void buttonTaskStart() {
     // pull-up. Such a pin needs an external 10k to 3V3; see board_pins.h.
     pinMode(buttons[i].pin, INPUT_PULLUP);
 
-    buttons[i].stableDown = false;
-    buttons[i].candidateDown = false;
-    buttons[i].candidateSinceMs = 0;
+    // Start from what the pin ACTUALLY reads, not from "released".
+    //
+    // GPIO 0 is held low for a while after reset by the board's auto-reset
+    // circuit. Assuming "released" means the first poll sees a low pin, calls
+    // it an edge, and reports a press nobody made - so the controller sends
+    // INIT to the node every single time it boots. Seeding from the real level
+    // means a pin that is already down at startup has to be released and
+    // pressed again before it counts.
+    const bool down = digitalRead(buttons[i].pin) == LOW;
+
+    // A pin with no internal pull-up that is already low at boot almost
+    // certainly has no external one either - nobody powers the board up holding
+    // a button. Said loudly, because the alternative is what happened before:
+    // the pin floats, invents presses, walks the target to a node that is not
+    // there, and every symptom after that points at the radio instead.
+    if (!pinHasInternalPullup(buttons[i].pin) && down) {
+      LOG_ERROR(TagButton, CodeNoPullup, buttons[i].pin);
+    }
+
+    buttons[i].stableDown = down;
+    buttons[i].candidateDown = down;
+    buttons[i].candidateSinceMs = millis();
     buttons[i].acceptedAtMs = 0;
   }
 

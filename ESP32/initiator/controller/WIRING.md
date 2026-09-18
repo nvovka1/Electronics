@@ -12,25 +12,36 @@ The third is already there — the on-board **PRG** button is the sequence butto
 |---|---|---|---|
 | SEQ | **GPIO 0** (on-board PRG) | advance INIT → ARM → FIRE | none |
 | SAFE | **GPIO 13** | send SAFE, always | none |
-| TARGET | **GPIO 36** | cycle which node is commanded | **10 kΩ to 3.3 V** |
+| TARGET | **GPIO 15** | cycle which node is commanded | none |
 
 Wire each added button **between the pin and GND**.
 
-GPIO 13 needs nothing else: it is configured `INPUT_PULLUP`, so the internal
-pull-up holds it high and the button pulls it low. Do not add a pull-up of your
-own there — two pull-ups fighting is a button that reads as half-pressed.
-
-**GPIO 36 is the exception and it needs one resistor.** It is an input-only pin
-with *no internal pull-up at all*, so `INPUT_PULLUP` is silently ignored and the
-pin floats. Add a **10 kΩ resistor between GPIO 36 and 3.3 V** and it behaves
-exactly like the other two. Without it, TARGET reads noise — usually stuck,
-occasionally changing target on its own.
-
-SAFE is on 13 rather than 36 on purpose: it is the button that has to work, so
-it gets the pin that cannot be broken by a missing resistor.
+All three need nothing else. Each is configured `INPUT_PULLUP`, so the internal
+pull-up holds the pin high and the button pulls it low. Do not add a pull-up of
+your own — two pull-ups fighting is a button that reads as half-pressed.
 
 A momentary push-to-make switch of any size. Debounce is in software
 (`ButtonDebounceMs`, 40 ms), so no capacitor is needed.
+
+### Why TARGET is not on GPIO 36
+
+It was, and it cost hours. Worth reading before moving any button onto 34–39.
+
+Those pins have **no internal pull-up at all** — `INPUT_PULLUP` is silently
+ignored and the pin floats. Floating, it invented presses. TARGET walked the aim
+from node 1 to node 4 and wrote that to NVS. Every command after that went to a
+node that does not exist; the real node heard each one, saw it was addressed
+elsewhere and stayed silent, exactly as designed. From the controller it looked
+like a dead radio link — `tx_NO_ACK`, three attempts, nothing. It survived
+reflashing, because the wrong target was in flash rather than in the image.
+
+An external 10 kΩ to 3.3 V does make those pins usable. GPIO 15 needs no
+resistor, which is a better answer than remembering one.
+
+The firmware now logs `NO_PULLUP  GPIO nn reads low at boot` if a pin without an
+internal pull-up looks unconnected, and `status` prints the target on its own
+line — that is the first number to check whenever it transmits and nothing
+answers.
 
 ### Which button goes where matters
 

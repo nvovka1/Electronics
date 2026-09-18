@@ -49,6 +49,13 @@ enum LogCode : uint8_t {
   CodeTxNoAck = 40,
   CodeAnnounceRx = 41,
   CodeAckIgnored = 42,
+  CodeCmdAccepted = 43,
+  CodeCmdRefused = 44,
+  CodeCmdLost = 45,
+  CodeRadioBusy = 46,
+  CodeSafeAbort = 47,
+  CodePressDropped = 48,
+  CodeNoPullup = 49,
 
   CodeButtonPressed = 60,
   CodeNothingToDo = 61,

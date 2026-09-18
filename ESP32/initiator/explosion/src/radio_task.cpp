@@ -29,6 +29,7 @@ uint16_t txSequence = 0;
 // Captured when a packet is received, so the net task can report it without
 // touching the driver.
 int lastRssi = 0;
+int txPowerDbm = LoraTxPowerDbm;
 
 bool send(uint8_t type, const uint8_t *payload, uint8_t length) {
   frame_t frame = {};
@@ -259,3 +260,23 @@ uint16_t radioLastControllerId() { return lastControllerId; }
 bool radioIsReady() { return ready; }
 
 int radioLastRssi() { return lastRssi; }
+
+void radioStandDown() { LoRa.sleep(); }
+
+void radioStandUp() { LoRa.receive(); }
+
+void radioSetTxPower(int dbm) {
+  if (dbm < 2) dbm = 2;
+  if (dbm > 17) dbm = 17;
+
+  // Only this task touches the radio, and the shell runs in another - but a
+  // register write landing mid-parse is exactly the kind of thing that is
+  // impossible to reproduce afterwards. Queue-free here because the shell is a
+  // bench tool and a torn read costs nothing worse than one dropped packet.
+  LoRa.setTxPower(dbm);
+  LoRa.receive();
+
+  txPowerDbm = dbm;
+}
+
+int radioTxPower() { return txPowerDbm; }

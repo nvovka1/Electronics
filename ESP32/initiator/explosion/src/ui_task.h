@@ -14,3 +14,12 @@ void uiPost(const UiUpdate &update);
 // reach anything.
 void uiSetWifiUp(bool up);
 void uiSetRadioUp(bool up);
+
+// Blank the panel and bring it back. The OLED draws about 15 mA, which is worth
+// having back during the WiFi start-up surge on a marginal supply.
+// The last HTTP status from the fleet service, for the screen. This is the
+// whole diagnosis on a board that cannot hold a serial cable up.
+void uiSetApiStatus(int status);
+
+void uiSuspendPanel();
+void uiResumePanel();

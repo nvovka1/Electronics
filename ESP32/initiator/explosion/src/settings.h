@@ -21,6 +21,17 @@ struct Settings {
   char baseUrl[128];
   char apiKey[80];
 
+  // WiFi can be switched off entirely, so the node runs on LoRa alone. Worth
+  // having: the radio side is independent of the network, and a board whose
+  // supply cannot survive the WiFi transmitter is still a perfectly good node
+  // with a gap in its reporting.
+  bool wifiEnabled;
+
+  // WiFi transmit power in dBm. Lower means smaller current peaks, which is
+  // what a marginal supply cannot survive. Settable so the threshold can be
+  // found on the bench without a rebuild between every try.
+  int8_t wifiTxPowerDbm;
+
   // Incremented once per boot. Sent with every report, because the node's
   // millisecond clock restarts at zero on each boot and the backend needs the
   // pair to order two reports.
@@ -38,6 +49,8 @@ bool settingsSaveAutoArmSeconds(uint32_t seconds);
 bool settingsSaveWifi(const char *ssid, const char *password);
 bool settingsSaveBaseUrl(const char *url);
 bool settingsSaveApiKey(const char *key);
+bool settingsSaveWifiEnabled(bool enabled);
+bool settingsSaveWifiTxPower(int8_t dbm);
 
 // Back to what the image was built with. Does not touch the boot count: how
 // many times this board has started is a fact about the board, not a setting.

@@ -8,6 +8,7 @@
 // FreeRTOS queues - no pointers, so no lifetime to get wrong and no allocation
 // after setup.
 
+// Three buttons, one job each.
 enum ButtonId : uint8_t {
   ButtonSequence = 0,
   ButtonSafe = 1,

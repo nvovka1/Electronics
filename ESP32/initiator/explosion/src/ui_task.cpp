@@ -21,6 +21,7 @@ QueueHandle_t uiQueue = nullptr;
 
 UiUpdate latest = {};
 bool wifiUp = false;
+int apiStatus = 0;
 bool radioUp = false;
 bool displayReady = false;
 
@@ -86,9 +87,35 @@ void draw() {
   }
 
   // Bottom line: who this node is and what it can currently reach.
+  //
+  // The API status is here rather than only in the log because of how this
+  // board has to be debugged: plugging in a serial cable browns it out, so the
+  // screen is the only surface a diagnosis can appear on. "wifi" with "api 401"
+  // beside it is a complete answer; "wifi" alone is not.
   display.setCursor(0, 56);
   display.printf("%s n%u %s %s", settings.serial, (unsigned)settings.nodeId,
                  radioUp ? "lora" : "----", wifiUp ? "wifi" : "----");
+
+  if (wifiUp) {
+    display.setCursor(0, 46);
+    if (apiStatus == 0) {
+      display.print("api waiting...");
+    } else if (apiStatus >= 200 && apiStatus < 300) {
+      display.printf("api ok (%d)", apiStatus);
+    } else if (apiStatus == 401) {
+      display.print("api 401 BAD KEY");
+    } else if (apiStatus == 404) {
+      display.print("api 404 BAD URL");
+    } else if (apiStatus == -101) {
+      display.print("api no wifi");
+    } else if (apiStatus == -102) {
+      display.print("api BAD URL SET");
+    } else if (apiStatus < 0) {
+      display.printf("api NO REPLY %d", apiStatus);
+    } else {
+      display.printf("api HTTP %d", apiStatus);
+    }
+  }
 
   display.display();
 }
@@ -138,6 +165,18 @@ void uiPost(const UiUpdate &update) {
   if (uiQueue == nullptr) return;
   xQueueSend(uiQueue, &update, 0);
 }
+
+void uiSuspendPanel() {
+  if (!displayReady) return;
+  display.ssd1306_command(SSD1306_DISPLAYOFF);
+}
+
+void uiResumePanel() {
+  if (!displayReady) return;
+  display.ssd1306_command(SSD1306_DISPLAYON);
+}
+
+void uiSetApiStatus(int status) { apiStatus = status; }
 
 void uiSetWifiUp(bool up) { wifiUp = up; }
 

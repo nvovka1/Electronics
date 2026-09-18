@@ -47,14 +47,26 @@ constexpr uint8_t ButtonSafePin = 13;
 
 // Cycles which node is being commanded.
 //
-// GPIO 36 IS INPUT-ONLY AND HAS NO INTERNAL PULL-UP. It reads a button
-// perfectly well, but INPUT_PULLUP below is silently ignored on it, so this pin
-// needs an EXTERNAL 10k resistor to 3V3. Without one it floats and reads noise:
-// usually stuck, sometimes a phantom target change.
-constexpr uint8_t ButtonTargetPin = 36;
+// On 15, which has a working internal pull-up, so this button needs no external
+// resistor - unlike the other two candidates on this board.
+//
+// IT WAS ON GPIO 36, AND THAT COST HOURS. GPIO 34-39 read inputs but have NO
+// internal pull-up, so INPUT_PULLUP is silently ignored and the pin floats.
+// Floating, it invented presses, quietly walked the target from node 1 to node
+// 4 and wrote that to NVS. Every command then went to a node that does not
+// exist; the real node heard each one, saw it was addressed elsewhere and
+// stayed silent, exactly as designed. From the controller it looked like a dead
+// radio link, and it survived reflashing because the wrong target was in flash,
+// not in the image.
+//
+// GPIO 15 is a strapping pin, but a harmless one here: held LOW at reset it
+// only silences the ROM boot log. A button is open at rest, so that happens
+// only if somebody is holding TARGET while the board starts.
+constexpr uint8_t ButtonTargetPin = 15;
 
-// NOT GPIO 32 or 33: on this board revision they are the 32.768 kHz crystal and
-// are not broken out at all.
+// GPIO 34-39 are input-only and have no internal pull-up. A button on one of
+// them is fine, but only with its own resistor.
+constexpr bool pinHasInternalPullup(uint8_t pin) { return pin < 34; }
 
 // GPIO 0 is a strapping pin: held LOW at reset it enters the bootloader instead
 // of running. That is what the button is for, so it is not a problem - but it

@@ -36,6 +36,16 @@ void setup() {
 
   LOG_INFO(TagSys, CodeBoot, 0);
 
+  // Logged at every boot, and at WARN when it was not a clean one. A node that
+  // restarts on its own comes back in SAFE, so from the outside it looks like
+  // the state machine misbehaving rather than like the board dying - this line
+  // is what tells the two apart, and it goes to the dashboard too.
+  const esp_reset_reason_t resetReason = esp_reset_reason();
+  const bool cleanStart =
+      resetReason == ESP_RST_POWERON || resetReason == ESP_RST_EXT || resetReason == ESP_RST_SW;
+
+  LOG_AT(cleanStart ? LevelInfo : LevelWarn, TagSys, CodeResetReason, (int32_t)resetReason);
+
   // Before any task: everything below reads these.
   settingsLoad();
 

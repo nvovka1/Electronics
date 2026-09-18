@@ -31,3 +31,10 @@ bool fleetPostLogs(const LogRecord *records, uint8_t count);
 // GET the next queued command. Returns true only when there is one; a 204 is
 // the common answer and is not a failure.
 bool fleetPollCommand(PolledCommand *out);
+
+// The HTTP status of the last request, or a negative HTTPClient error. Exposed
+// so the screen can show it: on a board that browns out the moment a serial
+// cable is plugged in, the OLED is the only place a diagnosis can appear.
+//
+// 0 means nothing has been attempted yet.
+int fleetLastHttpStatus();

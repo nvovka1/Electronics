@@ -44,6 +44,7 @@ enum LogCode : uint8_t {
   CodeFwDirty = 3,
   CodeTaskStartFail = 4,
   CodeWdtSubscribed = 5,
+  CodeResetReason = 6,
 
   CodePostPass = 10,
   CodePostFail = 11,
@@ -83,6 +84,12 @@ enum LogCode : uint8_t {
   CodeEventPosted = 75,
   CodeEventBuffered = 76,
   CodeLogSent = 77,
+  CodeWifiHeldOff = 78,
+  CodeWifiTxPower = 79,
+  CodeWifiRetryAfterHold = 80,
+  CodeReportTry = 81,
+  CodeHeapFree = 82,
+  CodeNetAlive = 83,
 
   CodeBattLow = 90,
   CodeBattUntrusted = 91,

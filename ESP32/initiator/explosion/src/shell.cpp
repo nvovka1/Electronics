@@ -23,11 +23,14 @@ void printHelp() {
   Serial.println(F("commands:"));
   Serial.println(F("  status                 state, countdown, links, buffers"));
   Serial.println(F("  net                    wifi and service settings"));
+  Serial.println(F("  wifi on | wifi off     switch the WiFi radio, saved"));
   Serial.println(F("  set node_id <n>        this node's protocol address"));
   Serial.println(F("  set autoarm <seconds>  INIT -> ARMED timeout"));
   Serial.println(F("  set wifi <ssid> <pass>"));
   Serial.println(F("  set url <base-url>"));
   Serial.println(F("  set key <api-key>"));
+  Serial.println(F("  set power <2..17>      LoRa tx power, live"));
+  Serial.println(F("  set wifipower <2..20>  WiFi tx power, saved - lower it if the board browns out"));
   Serial.println(F("  reset                  settings back to the built-in defaults"));
 #if BUILD_TEST_COMMANDS
   Serial.println(F("  cmd <init|arm|fire|safe>   bench only: drive the state machine"));
@@ -48,7 +51,8 @@ void printStatus() {
                   (unsigned long)settings.autoArmSeconds);
   }
 
-  Serial.printf("lora      %s\n", radioIsReady() ? "ready" : "FAILED");
+  Serial.printf("lora      %s  tx %d dBm  last rssi %d dBm\n",
+                radioIsReady() ? "ready" : "FAILED", radioTxPower(), radioLastRssi());
   Serial.printf("wifi      %s\n", netIsConnected() ? "up" : "down");
   Serial.printf("boots     %lu\n", (unsigned long)settings.bootCount);
   Serial.printf("events    %u waiting, %u lost to wrap\n", (unsigned)eventBufferPending(),
@@ -123,8 +127,16 @@ void handleSet(char *arguments) {
   } else if (strcmp(key, "key") == 0) {
     settingsSaveApiKey(value);
     Serial.printf("api key set (%u chars)\n", (unsigned)strlen(settings.apiKey));
+  } else if (strcmp(key, "wifipower") == 0) {
+    settingsSaveWifiTxPower((int8_t)atoi(value));
+    Serial.printf("wifi tx power %d dBm - takes effect on the next connect\n",
+                  (int)settings.wifiTxPowerDbm);
+  } else if (strcmp(key, "power") == 0) {
+    radioSetTxPower(atoi(value));
+    Serial.printf("tx power %d dBm (not saved - put the final value in config.h)\n",
+                  radioTxPower());
   } else {
-    Serial.println(F("? node_id|autoarm|wifi|url|key"));
+    Serial.println(F("? node_id|autoarm|wifi|url|key|power|wifipower"));
   }
 }
 
@@ -135,6 +147,19 @@ void execute(char *input) {
   if (strcmp(input, "help") == 0) { printHelp(); return; }
   if (strcmp(input, "status") == 0) { printStatus(); return; }
   if (strcmp(input, "net") == 0) { printNet(); return; }
+
+  if (strcmp(input, "wifi on") == 0) {
+    settingsSaveWifiEnabled(true);
+    netEnableWifi();
+    Serial.println(F("wifi on - connecting"));
+    return;
+  }
+
+  if (strcmp(input, "wifi off") == 0) {
+    settingsSaveWifiEnabled(false);
+    Serial.println(F("wifi off - the node runs on LoRa alone and reports nothing"));
+    return;
+  }
 
   if (strcmp(input, "reset") == 0) {
     settingsReset();
