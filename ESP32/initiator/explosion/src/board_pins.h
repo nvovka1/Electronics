@@ -39,32 +39,39 @@ constexpr int8_t OledResetPin = -1;
 constexpr uint8_t LedSafePin = 13;  // blue
 constexpr uint8_t LedInitPin = 2;   // green
 constexpr uint8_t LedArmedPin = 14; // yellow
-constexpr uint8_t LedFirePin = 0;   // red - WIRED THE OTHER WAY ROUND, see below
+constexpr uint8_t LedFirePin = 15;  // red
 
-// Which way each LED is wired. Three are anode -> resistor -> pin, cathode to
-// GND, so the pin drives HIGH to light them. The red one is not.
+// Which way each LED is wired: false means the ordinary way round - anode
+// through the resistor to the pin, cathode to GND - so the pin drives HIGH to
+// light it. All four are ordinary now.
+//
+// Set one of these true only if that LED is wired the other way, anode to 3V3
+// and cathode to the pin. That was needed while the red one sat on GPIO 0, and
+// it is the one-word change if a LED ever has to go back there.
 constexpr bool LedSafeActiveLow = false;
 constexpr bool LedInitActiveLow = false;
 constexpr bool LedArmedActiveLow = false;
-constexpr bool LedFireActiveLow = true;
+constexpr bool LedFireActiveLow = false;
 
-// WHY THE RED LED IS BACKWARDS
+// WHY THE RED LED IS NOT ON GPIO 0
 //
-// GPIO 0 is the boot strapping pin. With a LED to GND the board does not run at
-// all: the on-board 10k pull-up sources about 330 uA, the LED clamps the pin
-// near 1.6 V, and the ESP32 needs above 2.48 V to read high at reset. GPIO 0
-// comes up LOW and the chip enters serial download mode instead of starting
-// this firmware - no radio, no ACK, and a board that looks alive. Flashing
-// still appears to work, because the board is already in the mode the flasher
-// wants, so a successful upload does not prove the pin is free.
+// It was, and the board would not run. GPIO 0 is the boot strapping pin: with a
+// LED to GND the on-board 10k pull-up sources only about 330 uA, the LED clamps
+// the pin near 1.6 V, and the ESP32 needs above 2.48 V to read high at reset.
+// GPIO 0 comes up LOW and the chip enters serial download mode instead of
+// starting this firmware - no radio, no ACK, and a board that looks alive.
+// Flashing still appears to work, because the board is already in the mode the
+// flasher wants, so a successful upload does not prove the pin is free.
 //
-// Wired the other way - anode to 3V3, cathode through the resistor to GPIO 0 -
-// the LED becomes a pull-up. The pin reads HIGH at reset, the board boots, and
-// driving the pin LOW lights the LED.
+// Wiring it anode-to-3V3 fixes the boot, because the LED then pulls the pin up.
+// That works, but it leaves the LED inverted, faintly lit whenever the pin is
+// high-impedance, and shorted by the PRG button, which sits on the same pin. A
+// different pin is simply better, and that is why the red one is on 15.
 //
-// The cost: GPIO 0 is also the on-board PRG button, which shorts it to GND.
-// Pressing PRG while this pin is driven HIGH (red off) shorts the output.
-// Briefly it survives; it is still a reason not to press PRG while running.
+// GPIO 15 is itself a strapping pin, but a mild one: held LOW at reset it only
+// silences the ROM boot log on the serial line. The board still boots and the
+// firmware's own output is unaffected. Worth knowing when chasing a reboot,
+// because "rst:0x1 (POWERON_RESET)" is one of the lines you lose.
 //
 // PINS THAT CANNOT DRIVE A LED, WHATEVER THE CODE SAYS
 //

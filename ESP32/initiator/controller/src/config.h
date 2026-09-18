@@ -49,11 +49,17 @@ constexpr uint32_t CounterBlockSize = 100;
 
 // --- buttons --------------------------------------------------------------
 
-// Long enough to swallow contact bounce, short enough that a press feels
-// immediate. These are mechanical buttons, so this is about the switch rather
-// than the person.
+// How long a level must HOLD before it is believed. Long enough to swallow
+// contact bounce, short enough that a press feels immediate. These are
+// mechanical buttons, so this is about the switch rather than the person.
 constexpr uint32_t ButtonDebounceMs = 40;
 constexpr uint32_t ButtonPollMs = 10;
+
+// The shortest gap between two accepted presses of the same button. Nobody
+// presses one four times a second, so anything faster is hardware misbehaving -
+// a floating input, most likely - and this keeps that from filling the queue
+// and starving the buttons that are wired correctly.
+constexpr uint32_t ButtonMinGapMs = 250;
 
 // --- display --------------------------------------------------------------
 

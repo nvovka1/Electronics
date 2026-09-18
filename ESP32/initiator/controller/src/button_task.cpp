@@ -21,14 +21,16 @@ volatile bool safePending = false;
 struct Button {
   uint8_t pin;
   uint8_t id;
-  bool wasDown;
-  uint32_t changedAtMs;
+  bool stableDown;    // the level we have accepted
+  bool candidateDown; // the level we are currently timing
+  uint32_t candidateSinceMs;
+  uint32_t acceptedAtMs;
 };
 
 Button buttons[] = {
-    {ButtonSequencePin, ButtonSequence, false, 0},
-    {ButtonSafePin, ButtonSafe, false, 0},
-    {ButtonTargetPin, ButtonTarget, false, 0},
+    {ButtonSequencePin, ButtonSequence, false, false, 0, 0},
+    {ButtonSafePin, ButtonSafe, false, false, 0, 0},
+    {ButtonTargetPin, ButtonTarget, false, false, 0, 0},
 };
 
 constexpr size_t ButtonCount = sizeof(buttons) / sizeof(buttons[0]);
@@ -36,21 +38,38 @@ constexpr size_t ButtonCount = sizeof(buttons) / sizeof(buttons[0]);
 void poll(Button &button) {
   // INPUT_PULLUP and wired to GND, so pressed reads LOW.
   const bool isDown = digitalRead(button.pin) == LOW;
-  if (isDown == button.wasDown) return;
-
   const uint32_t now = millis();
 
-  // Ignore anything inside the debounce window. Contact bounce on a mechanical
-  // switch is several transitions in a few milliseconds, and without this a
-  // single press sends three commands.
-  if ((uint32_t)(now - button.changedAtMs) < ButtonDebounceMs) return;
+  // The level has to HOLD for the debounce window before it is believed, rather
+  // than an edge being accepted and the next few milliseconds ignored. The
+  // difference matters for a pin that is not merely bouncing but floating: the
+  // edge-then-blank version accepts one press per blanking period forever,
+  // which fills the queue and starves the other buttons. This version accepts
+  // nothing at all while the level keeps changing.
+  if (isDown != button.candidateDown) {
+    button.candidateDown = isDown;
+    button.candidateSinceMs = now;
+    return;
+  }
 
-  button.wasDown = isDown;
-  button.changedAtMs = now;
+  if ((uint32_t)(now - button.candidateSinceMs) < ButtonDebounceMs) return;
+  if (isDown == button.stableDown) return;
+
+  button.stableDown = isDown;
 
   // On the press, not the release. A control that acts when you let go feels
   // broken, and on the SAFE button it would be worse than that.
   if (!isDown) return;
+
+  // Nobody presses a button ten times a second. A stream of accepted presses is
+  // hardware misbehaving, not an operator, and rate-limiting it keeps one bad
+  // pin from crowding the others out of the queue.
+  if (button.acceptedAtMs != 0 &&
+      (uint32_t)(now - button.acceptedAtMs) < ButtonMinGapMs) {
+    return;
+  }
+
+  button.acceptedAtMs = now;
 
   LOG_DEBUG(TagButton, CodeButtonPressed, button.id);
 
@@ -77,9 +96,14 @@ void buttonTask(void *) {
 
 void buttonTaskStart() {
   for (size_t i = 0; i < ButtonCount; i++) {
+    // INPUT_PULLUP is silently ignored on GPIO 34-39, which have no internal
+    // pull-up. Such a pin needs an external 10k to 3V3; see board_pins.h.
     pinMode(buttons[i].pin, INPUT_PULLUP);
-    buttons[i].wasDown = false;
-    buttons[i].changedAtMs = 0;
+
+    buttons[i].stableDown = false;
+    buttons[i].candidateDown = false;
+    buttons[i].candidateSinceMs = 0;
+    buttons[i].acceptedAtMs = 0;
   }
 
   buttonQueue = xQueueCreate(ButtonQueueDepth, sizeof(ButtonEvent));
