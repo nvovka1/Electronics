@@ -37,6 +37,18 @@ Refused commands are here too; they are usually the interesting ones.
 text is reconstructed here from the same dictionary that ships with the
 firmware.
 
+**Flights** — telemetry from the aircraft logger in
+[`ESP32/mavlink`](../../ESP32/mavlink), which is a different kind of device from
+the initiator nodes and shares nothing with them but this service and its API
+key. One file per power-on, uploaded row by row as WiFi allows, downloadable as
+the same CSV the board wrote to its own flash. A flight that flew out of range
+arrives late rather than short, because the board records first and uploads
+second.
+
+Only the newest flights per aircraft are kept here — `Mongo:FlightsKeptPerAircraft`,
+twenty by default. The board holds its own copy until its flash needs the space,
+so a flight dropped here is not necessarily lost.
+
 ### What it deliberately does not do
 
 **It does not run the state machine.** The node does. This service holds a copy

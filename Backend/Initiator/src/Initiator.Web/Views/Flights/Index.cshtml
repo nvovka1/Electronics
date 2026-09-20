@@ -1,0 +1,95 @@
+@model FlightListViewModel
+@{
+    ViewData["Title"] = "Flights";
+}
+
+<h1>Flights</h1>
+<p class="lede">
+    What the aircraft's telemetry logger recorded, one file per power-on. The board keeps its
+    own copy until its flash needs the space, so a flight missing here may still be on it —
+    and a flight that never reached WiFi arrives late rather than not at all.
+</p>
+
+@if (Model.Aircraft.Count == 0)
+{
+    <div class="empty">
+        No aircraft has reported yet. A board enrols itself with its first batch of rows.
+    </div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr><th>Aircraft</th><th>Flights</th><th>Rows</th><th>Last heard</th><th></th></tr>
+        </thead>
+        <tbody>
+        @foreach (var aircraft in Model.Aircraft)
+        {
+            <tr>
+                <td><strong>@aircraft.Serial</strong></td>
+                <td>@aircraft.FlightCount</td>
+                <td>@aircraft.SampleCount.ToString("N0")</td>
+                <td>@aircraft.LastSampleAt.ToString("yyyy-MM-dd HH:mm") UTC</td>
+                <td><a asp-action="Index" asp-route-serial="@aircraft.Serial">only this one</a></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+
+    @if (Model.Serial is not null)
+    {
+        <p><a asp-action="Index">Show every aircraft</a></p>
+    }
+
+    <h2>@(Model.Serial is null ? "Every flight" : $"Flights of {Model.Serial}")</h2>
+
+    @if (Model.Flights.Count == 0)
+    {
+        <div class="empty">Nothing recorded for this aircraft.</div>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>Aircraft</th><th>Flight</th><th>Started</th><th>Duration</th>
+                    <th>Rows</th><th>Max alt</th><th>Max speed</th><th>Min battery</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var flight in Model.Flights)
+            {
+                <tr>
+                    <td>@flight.Serial</td>
+                    <td>
+                        <a asp-action="Details" asp-route-serial="@flight.Serial" asp-route-flightId="@flight.FlightId">
+                            @flight.FlightId
+                        </a>
+                    </td>
+                    <td>
+                        @if (flight.StartedAt is DateTime started)
+                        {
+                            @started.ToString("yyyy-MM-dd HH:mm:ss")
+                        }
+                        else
+                        {
+                            @* No GPS fix that flight, so the aircraft never knew what time it was. *@
+                            <span class="muted">no GPS time</span>
+                        }
+                    </td>
+                    <td>@TimeSpan.FromMilliseconds(flight.DurationMs).ToString(@"hh\:mm\:ss")</td>
+                    <td>@flight.SampleCount.ToString("N0")</td>
+                    <td>@(flight.MaxAltRel?.ToString("F1") ?? "—") m</td>
+                    <td>@(flight.MaxGroundSpeed?.ToString("F1") ?? "—") m/s</td>
+                    <td>@(flight.MinBatteryVoltage?.ToString("F2") ?? "—") V</td>
+                    <td>
+                        <a asp-action="Csv" asp-route-serial="@flight.Serial" asp-route-flightId="@flight.FlightId">
+                            CSV
+                        </a>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    }
+}

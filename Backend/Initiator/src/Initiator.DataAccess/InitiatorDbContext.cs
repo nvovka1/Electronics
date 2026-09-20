@@ -2,6 +2,7 @@ using Initiator.Domain.Commands;
 using Initiator.Domain.Devices;
 using Initiator.Domain.Logs;
 using Initiator.Domain.States;
+using Initiator.Domain.Telemetry;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
@@ -42,6 +43,8 @@ public sealed class InitiatorDbContext
         Commands = Database.GetCollection<Command>("Commands");
         StateEvents = Database.GetCollection<StateEvent>("StateEvents");
         Logs = Database.GetCollection<LogRecord>("DeviceLogs");
+        Flights = Database.GetCollection<Flight>("Flights");
+        TelemetrySamples = Database.GetCollection<TelemetrySample>("TelemetrySamples");
     }
 
     public IMongoDatabase Database { get; }
@@ -53,6 +56,15 @@ public sealed class InitiatorDbContext
     public IMongoCollection<StateEvent> StateEvents { get; }
 
     public IMongoCollection<LogRecord> Logs { get; }
+
+    public IMongoCollection<Flight> Flights { get; }
+
+    /// <summary>
+    /// By far the largest collection: one document per row per flight. Kept
+    /// separate from the summaries in <see cref="Flights"/> so the list page
+    /// never touches it.
+    /// </summary>
+    public IMongoCollection<TelemetrySample> TelemetrySamples { get; }
 
     /// <summary>
     /// Conventions are process-wide in the driver and registering the same pack
@@ -126,6 +138,33 @@ public sealed class InitiatorDbContext
             map.UnmapMember(record => record.CodeName);
             map.UnmapMember(record => record.ArgDescription);
             map.UnmapMember(record => record.IsNoteworthy);
+        });
+
+        BsonClassMap.RegisterClassMap<Flight>(map =>
+        {
+            map.AutoMap();
+
+            // serial:flightId, a natural key like the device serial. A generated
+            // id would add a second identity for the same thing and turn every
+            // ingest upsert into a lookup followed by a write.
+            map.MapIdMember(flight => flight.Id);
+        });
+
+        BsonClassMap.RegisterClassMap<TelemetrySample>(map =>
+        {
+            map.AutoMap();
+            MapStringObjectId(map, sample => sample.Id);
+
+            // Nulls are NOT stored. A row of a flight without a GPS fix is
+            // mostly nulls, and at tens of thousands of rows a flight the
+            // difference is the free tier holding a season or a fortnight.
+            // Reading is unaffected: an absent element deserialises to null,
+            // which is what it means.
+            map.SetIgnoreExtraElements(true);
+            foreach (var member in map.DeclaredMemberMaps)
+            {
+                member.SetIgnoreIfNull(true);
+            }
         });
     }
 

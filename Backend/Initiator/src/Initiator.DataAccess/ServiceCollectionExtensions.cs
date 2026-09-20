@@ -23,6 +23,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommandRepository, MongoCommandRepository>();
         services.AddScoped<IStateEventRepository, MongoStateEventRepository>();
         services.AddScoped<ILogRepository, MongoLogRepository>();
+        services.AddScoped<IFlightRepository, MongoFlightRepository>();
+        services.AddScoped<ITelemetrySampleRepository, MongoTelemetrySampleRepository>();
 
         services.AddHostedService<MongoIndexInitializer>();
 

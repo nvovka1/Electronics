@@ -1,0 +1,77 @@
+@model FlightDetailsViewModel
+@{
+    var flight = Model.Flight;
+    ViewData["Title"] = $"Flight {flight.FlightId} · {flight.Serial}";
+}
+
+<h1>Flight @flight.FlightId <span class="muted">· @flight.Serial</span></h1>
+
+<p class="lede">
+    @flight.SampleCount.ToString("N0") rows, the first @Model.PreviewRows shown.
+    The CSV is the whole flight.
+</p>
+
+<p>
+    <a class="cmd" asp-action="Csv" asp-route-serial="@flight.Serial" asp-route-flightId="@flight.FlightId">
+        Download CSV
+    </a>
+</p>
+
+<table>
+    <tbody>
+        <tr><th>Started</th><td>@(flight.StartedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "no GPS time") UTC</td></tr>
+        <tr><th>Ended</th><td>@(flight.EndedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "—") UTC</td></tr>
+        <tr><th>Duration</th><td>@TimeSpan.FromMilliseconds(flight.DurationMs).ToString(@"hh\:mm\:ss")</td></tr>
+        <tr><th>Max altitude</th><td>@(flight.MaxAltRel?.ToString("F1") ?? "—") m above home</td></tr>
+        <tr><th>Max ground speed</th><td>@(flight.MaxGroundSpeed?.ToString("F1") ?? "—") m/s</td></tr>
+        <tr><th>Min battery</th><td>@(flight.MinBatteryVoltage?.ToString("F2") ?? "—") V</td></tr>
+        <tr><th>Next row expected</th><td>@flight.NextIndex</td></tr>
+        <tr><th>Last batch</th><td>@flight.LastSampleAt.ToString("yyyy-MM-dd HH:mm:ss") UTC</td></tr>
+    </tbody>
+</table>
+
+<h2>First rows</h2>
+
+@if (Model.Samples.Count == 0)
+{
+    <div class="empty">The flight has a summary but no rows, which should not happen.</div>
+}
+else
+{
+    <table>
+        <thead>
+            <tr>
+                <th>#</th><th>UTC</th><th>Armed</th><th>Mode</th><th>Fix</th><th>Sats</th>
+                <th>Lat</th><th>Lon</th><th>Alt</th><th>Speed</th><th>Batt</th><th>Link age</th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var sample in Model.Samples)
+        {
+            @* A dash is not a zero: an empty cell means nobody reported that
+               field at that instant, which is a different fact. *@
+            <tr>
+                <td>@sample.Index</td>
+                <td>@(sample.Utc?.ToString("HH:mm:ss.fff") ?? "—")</td>
+                <td>@(sample.Armed is null ? "—" : sample.Armed.Value ? "ARMED" : "no")</td>
+                <td>@(sample.Mode?.ToString() ?? "—")</td>
+                <td>@(sample.GpsFix?.ToString() ?? "—")</td>
+                <td>@(sample.Sats?.ToString() ?? "—")</td>
+                <td>@(sample.Lat?.ToString("F6") ?? "—")</td>
+                <td>@(sample.Lon?.ToString("F6") ?? "—")</td>
+                <td>@(sample.AltRel?.ToString("F1") ?? "—")</td>
+                <td>@(sample.GroundSpeed?.ToString("F1") ?? "—")</td>
+                <td>@(sample.BatteryVoltage?.ToString("F2") ?? "—")</td>
+                <td>@(sample.LinkAgeMs?.ToString() ?? "—")</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}
+
+<form method="post" asp-action="Delete" asp-route-serial="@flight.Serial" asp-route-flightId="@flight.FlightId"
+      onsubmit="return confirm('Delete this flight and its rows from the site?');">
+    <button type="submit" class="cmd danger">Delete from the site</button>
+</form>
+
+<p><a asp-action="Index">Back to flights</a></p>

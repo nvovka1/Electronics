@@ -1,6 +1,7 @@
 using Initiator.Domain.Commands;
 using Initiator.Domain.Logs;
 using Initiator.Domain.States;
+using Initiator.Domain.Telemetry;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -40,6 +41,7 @@ public sealed class MongoIndexInitializer : IHostedService
             await CreateCommandIndexesAsync(cancellationToken);
             await CreateStateEventIndexesAsync(cancellationToken);
             await CreateLogIndexesAsync(cancellationToken);
+            await CreateTelemetryIndexesAsync(cancellationToken);
 
             _logger.LogInformation(
                 "Mongo indexes ready; logs kept {LogDays} days, state events {EventDays} days",
@@ -101,6 +103,46 @@ public sealed class MongoIndexInitializer : IHostedService
                         Name = "ix_state_event_ttl",
                         ExpireAfter = TimeSpan.FromDays(Math.Max(1, _options.StateEventRetentionDays)),
                     }),
+            ],
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// The unique index here is not an optimisation - it is the idempotency
+    /// mechanism. The board re-sends any batch whose acknowledgement went
+    /// missing, which over a free instance that sleeps is routine, and this is
+    /// what makes a repeat free instead of a duplicated row.
+    /// </summary>
+    private async Task CreateTelemetryIndexesAsync(CancellationToken cancellationToken)
+    {
+        var sampleKeys = Builders<TelemetrySample>.IndexKeys;
+
+        await _context.TelemetrySamples.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<TelemetrySample>(
+                    sampleKeys.Ascending(sample => sample.Serial)
+                              .Ascending(sample => sample.FlightId)
+                              .Ascending(sample => sample.Index),
+                    new CreateIndexOptions
+                    {
+                        Name = "ux_sample_serial_flight_index",
+                        Unique = true,
+                    }),
+            ],
+            cancellationToken);
+
+        var flightKeys = Builders<Flight>.IndexKeys;
+
+        await _context.Flights.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<Flight>(
+                    flightKeys.Descending(flight => flight.LastSampleAt),
+                    new CreateIndexOptions { Name = "ix_flight_last_sample" }),
+
+                new CreateIndexModel<Flight>(
+                    flightKeys.Ascending(flight => flight.Serial)
+                              .Descending(flight => flight.FlightId),
+                    new CreateIndexOptions { Name = "ix_flight_serial_id" }),
             ],
             cancellationToken);
     }

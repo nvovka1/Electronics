@@ -21,6 +21,7 @@ builder.Services.AddInitiatorDataAccess(builder.Configuration);
 builder.Services.AddScoped<IDeviceCheckInService, DeviceCheckInService>();
 builder.Services.AddScoped<IStateEventIngestService, StateEventIngestService>();
 builder.Services.AddScoped<ICommandDispatchService, CommandDispatchService>();
+builder.Services.AddScoped<ITelemetryIngestService, TelemetryIngestService>();
 
 // Only does anything when SeedDemoData is true and no devices are enrolled, so
 // it can never overwrite a real fleet.

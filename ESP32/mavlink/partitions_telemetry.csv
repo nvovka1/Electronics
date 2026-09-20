@@ -1,0 +1,13 @@
+# ESP32 4MB, no OTA, as much filesystem as can be had.
+#
+# The stock tables reserve half the flash for a second app image. This firmware
+# is flashed over USB from the bench, so that half is worth far more as flight
+# log: 2 MB of LittleFS is roughly five hours at 2 Hz, against about forty
+# minutes on the default table.
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xe000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x1E0000,
+spiffs,     data, spiffs,   0x1F0000, 0x200000,
+coredump,   data, coredump, 0x3F0000, 0x10000,

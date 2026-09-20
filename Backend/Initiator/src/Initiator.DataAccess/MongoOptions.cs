@@ -30,4 +30,13 @@ public sealed class MongoOptions
     /// want to look at afterwards.
     /// </summary>
     public int StateEventRetentionDays { get; set; } = 365;
+
+    /// <summary>
+    /// How many flights are kept per aircraft. Telemetry is the one collection
+    /// that grows without bound - a single flight is tens of thousands of rows -
+    /// so ingest drops the oldest beyond this. The board keeps its own copy
+    /// until its flash needs the space, so a dropped flight is not necessarily
+    /// a lost one.
+    /// </summary>
+    public int FlightsKeptPerAircraft { get; set; } = 20;
 }
