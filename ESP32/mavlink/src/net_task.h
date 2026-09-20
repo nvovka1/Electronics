@@ -12,6 +12,21 @@
 
 void netTaskStart();
 
+// Keeps the radio off for this boot. Called when the last reset was a brownout:
+// bringing WiFi up is what collapsed the supply, so doing it again immediately
+// is a boot loop, and a board in a boot loop records nothing at all.
+//
+// Deliberately not persistent. A clean power-on clears it, so the way to get
+// the radio back after fixing the supply is to switch the board off and on -
+// which is what anyone would do anyway.
+void netHoldWifi();
+
+// Lifts the hold without a reboot, for when the supply has just been fixed and
+// you want to see whether it worked.
+void netEnableWifi();
+
+bool netWifiHeldOff();
+
 bool netIsStationConnected();
 bool netIsAccessPoint();
 

@@ -39,12 +39,18 @@ static void logTask(void *) {
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(periodMs));
 
     storeSnapshot(snapshot);
+
+    // Read BEFORE waiting for the lock, so a row delayed by contention still
+    // carries the instant it describes rather than the instant it was written.
+    // That is what makes waiting for the lock safe: the row is late, not wrong.
+    //
+    // Two seconds rather than a fifth of one, because the uploader can hold the
+    // lock while it walks the flight directory. The old timeout gave up inside
+    // that window and dropped four rows in ten - a hole in the record caused by
+    // the network, which is the one coupling this whole design exists to avoid.
     const uint32_t now = millis();
 
-    if (!storeLockLog(200)) {
-      // The uploader holds the lock while it reads a chunk. Missing this tick
-      // costs one row; waiting on it would make the recording rate depend on
-      // the network, which is the one coupling this design exists to avoid.
+    if (!storeLockLog(2000)) {
       _writeFailures++;
       continue;
     }

@@ -47,6 +47,15 @@ static const uint32_t LogRateHzMax = 10;
 // from than one deleted old flight.
 static const uint32_t FsReserveBytes = 64 * 1024;
 
+// How many flights the board keeps at all, regardless of space.
+//
+// Space alone is not a bound. Every power-on starts a flight, so an afternoon
+// of switching on and off leaves hundreds of small files - and a directory
+// listing can only return so many, beyond which the oldest become invisible to
+// the uploader and can never be deleted. Only fully uploaded flights are pruned
+// this way: one the service has not acknowledged exists nowhere else.
+static const uint32_t FlightsKeptOnBoard = 30;
+
 // ---------------------------------------------------------------- the upload
 
 // CSV bytes per batch, before conversion to JSON. Roughly 25 rows, which lands
@@ -65,6 +74,12 @@ static const uint32_t UploadBackoffMsMax = 60000;
 // -------------------------------------------------------------------- WiFi
 
 static const uint32_t WifiJoinTimeoutMs = 20000;
+
+// Transmit power in dBm, below the 19.5 the radio can reach. The peak current
+// at association is what collapses a marginal supply, and the few dB given up
+// here cost nothing at the range this board is ever used over. Raise it with
+// `set txpower` if you need the range and your supply can take it.
+static const int8_t WifiTxPowerDbmDefault = 17;
 
 // The fallback access point. Raised only when the saved network cannot be
 // joined, so that a board at a field with no known WiFi is still reachable from

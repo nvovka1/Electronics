@@ -17,13 +17,16 @@ static const char *Help =
     "  flights                   every flight on disk\r\n"
     "  head <id> [rows]          first rows of a flight\r\n"
     "  tail <id> [rows]          last rows of a flight\r\n"
-    "  rm <id>                   delete one flight\r\n"
+    "  rm <id> | rm all          delete one flight, or every closed one\r\n"
+    "  header                    the CSV column list\r\n"
+    "  wifi on|off               lift or re-apply the after-brownout radio hold\r\n"
     "  set serial <name>         board name, reaches the service as the aircraft\r\n"
     "  set wifi <ssid> <pass>    network to join\r\n"
     "  set url <base-url>        service to report to, no trailing slash\r\n"
     "  set key <api-key>         the X-Api-Key value\r\n"
     "  set baud <rate>           flight controller serial baud\r\n"
     "  set rate <hz>             rows per second\r\n"
+    "  set txpower <dbm>         wifi transmit power 2..20, lower it if it browns out\r\n"
     "  set upload on|off         pause uploading without stopping recording\r\n"
     "  reset                     settings back to the built-in defaults\r\n"
     "  reboot\r\n";
@@ -37,13 +40,26 @@ static void printStatus() {
   Serial.printf("serial      %s\r\n", settings.serial);
   Serial.printf("flight      %u, %lu rows written, %lu failed\r\n", (unsigned)logFlightId(),
                 (unsigned long)logRowsWritten(), (unsigned long)logWriteFailures());
-  Serial.printf("mav         %lu messages, %lu dropped, ", (unsigned long)mavMessagesSeen(),
+
+  Serial.printf("mav         %lu bytes, %lu messages, %lu dropped, ",
+                (unsigned long)mavBytesSeen(), (unsigned long)mavMessagesSeen(),
                 (unsigned long)mavParseErrors());
 
   if (linkAge == UINT32_MAX) {
-    Serial.printf("NO HEARTBEAT (check wiring and `set baud`)\r\n");
+    Serial.printf("NO HEARTBEAT\r\n");
   } else {
     Serial.printf("heartbeat %.1fs ago\r\n", linkAge / 1000.0);
+  }
+
+  // Spelled out rather than left as two numbers to compare. This is the
+  // question the shell is opened to answer, and the two causes need completely
+  // different things done about them.
+  if (mavBytesSeen() == 0) {
+    Serial.printf("            NOTHING ARRIVING: check TX/RX are crossed, GND is joined,\r\n");
+    Serial.printf("            and SERIALn_PROTOCOL is 2 on the port you wired\r\n");
+  } else if (mavMessagesSeen() == 0) {
+    Serial.printf("            BYTES BUT NO FRAMES: the baud rate is wrong.\r\n");
+    Serial.printf("            `set baud 115200` then `reboot`\r\n");
   }
 
   Serial.printf("armed       %s\r\n",
@@ -54,14 +70,22 @@ static void printStatus() {
     Serial.printf("battery     %.2f V\r\n", snapshot.batteryVoltage);
   }
 
-  Serial.printf("net         %s, %s, last http %d, %lu rows up\r\n",
-                netIsStationConnected() ? "station" : (netIsAccessPoint() ? "ap" : "down"),
-                netAddress().c_str(), netLastHttpStatus(), (unsigned long)netRowsUploaded());
+  if (netWifiHeldOff()) {
+    Serial.printf("net         WIFI HELD OFF - the last reset was a brownout\r\n");
+    Serial.printf("            recording is unaffected. Fix the supply, then `wifi on`,\r\n");
+    Serial.printf("            or lower the current peak with `set txpower 11`\r\n");
+  } else {
+    Serial.printf("net         %s, %s, last http %d, %lu rows up\r\n",
+                  netIsStationConnected() ? "station" : (netIsAccessPoint() ? "ap" : "down"),
+                  netAddress().c_str(), netLastHttpStatus(), (unsigned long)netRowsUploaded());
+  }
+
   Serial.printf("url         %s\r\n", settings.baseUrl);
   Serial.printf("upload      %s\r\n", settings.uploadEnabled ? "on" : "off");
   Serial.printf("disk        %lu of %lu bytes used\r\n", (unsigned long)storeFsUsedBytes(),
                 (unsigned long)storeFsTotalBytes());
-  Serial.printf("rate        %lu Hz\r\n", (unsigned long)settings.logRateHz);
+  Serial.printf("rate        %lu Hz, txpower %d dBm\r\n", (unsigned long)settings.logRateHz,
+                (int)settings.wifiTxPowerDbm);
 }
 
 static void printFlights() {
@@ -147,7 +171,7 @@ static void handleTail(uint16_t id, uint32_t rows) {
 }
 
 static void handleSet(char *arguments) {
-  char *what = strtok(arguments, " ");
+  char *what = arguments == nullptr ? nullptr : strtok(arguments, " ");
   if (what == nullptr) {
     Serial.printf("set what?\r\n");
     return;
@@ -203,6 +227,14 @@ static void handleSet(char *arguments) {
     return;
   }
 
+  if (strcmp(what, "txpower") == 0) {
+    char *value = strtok(nullptr, " ");
+    const bool ok = value != nullptr && settingsSaveWifiTxPower((int8_t)atoi(value));
+    Serial.printf(ok ? "txpower=%d dBm, reconnect to apply\r\n" : "rejected (2..20)\r\n",
+                  (int)settings.wifiTxPowerDbm);
+    return;
+  }
+
   if (strcmp(what, "upload") == 0) {
     char *value = strtok(nullptr, " ");
     if (value == nullptr) {
@@ -216,6 +248,72 @@ static void handleSet(char *arguments) {
   }
 
   Serial.printf("unknown setting\r\n");
+}
+
+// Everything except the flight being written.
+//
+// One command rather than one per flight: the console carries log lines from
+// four tasks, so a caller driving `rm` in a loop reads a heartbeat notice where
+// it expected a reply and cannot tell a refusal from a collision. The lock is
+// held for the whole sweep for the same reason - a delete that loses it to the
+// recorder looks identical to a delete that failed.
+//
+// The recorder will drop a row or two while this runs. That is the correct
+// trade for a maintenance command someone typed on purpose.
+static void removeAllFlights() {
+  if (!storeLockLog(5000)) {
+    Serial.printf("flight log busy, nothing removed\r\n");
+    return;
+  }
+
+  FlightLog &flightLog = storeFlightLog();
+  FlightInfo flights[FlightsMax];
+
+  uint32_t removed = 0;
+  uint32_t refused = 0;
+
+  // Repeated, because one listing returns at most FlightsMax entries and there
+  // can be more files than that on the board - which is exactly the state this
+  // command exists to clear up.
+  for (int pass = 0; pass < 8; pass++) {
+    const uint32_t count = flightLog.listFlights(flights, FlightsMax);
+    if (count == 0) break;
+
+    const uint32_t before = removed;
+    for (uint32_t i = 0; i < count; i++) {
+      if (flights[i].id == flightLog.currentFlightId()) continue;
+      if (flightLog.removeFlight(flights[i].id)) {
+        removed++;
+      } else {
+        refused++;
+      }
+    }
+
+    // No progress in a whole pass means the rest cannot be removed, and going
+    // round again would only repeat the same refusals.
+    if (removed == before) break;
+  }
+
+  storeUnlockLog();
+
+  Serial.printf("removed %lu flights, refused %lu, kept the open one (%u)\r\n",
+                (unsigned long)removed, (unsigned long)refused,
+                (unsigned)flightLog.currentFlightId());
+}
+
+static void handleWifi(char *value) {
+  if (value == nullptr) {
+    Serial.printf("wifi is %s\r\n", netWifiHeldOff() ? "held off" : "allowed");
+    return;
+  }
+
+  if (strcmp(value, "on") == 0) {
+    netEnableWifi();
+    Serial.printf("wifi allowed, it will try to join within a second\r\n");
+  } else {
+    netHoldWifi();
+    Serial.printf("wifi held off\r\n");
+  }
 }
 
 static void handleLine(char *line) {
@@ -257,7 +355,11 @@ static void handleLine(char *line) {
   if (strcmp(command, "rm") == 0) {
     char *id = strtok(nullptr, " ");
     if (id == nullptr) {
-      Serial.printf("usage: rm <id>\r\n");
+      Serial.printf("usage: rm <id> | rm all\r\n");
+      return;
+    }
+    if (strcmp(id, "all") == 0) {
+      removeAllFlights();
       return;
     }
     bool removed = false;
@@ -268,8 +370,16 @@ static void handleLine(char *line) {
     Serial.printf(removed ? "deleted\r\n" : "not deleted\r\n");
     return;
   }
+  if (strcmp(command, "wifi") == 0) {
+    handleWifi(strtok(nullptr, " "));
+    return;
+  }
   if (strcmp(command, "set") == 0) {
     handleSet(strtok(nullptr, ""));
+    return;
+  }
+  if (strcmp(command, "header") == 0) {
+    Serial.printf("%s\r\n", CSV_HEADER);
     return;
   }
   if (strcmp(command, "reset") == 0) {
@@ -280,10 +390,6 @@ static void handleLine(char *line) {
     Serial.printf("rebooting\r\n");
     delay(100);
     ESP.restart();
-    return;
-  }
-  if (strcmp(command, "header") == 0) {
-    Serial.printf("%s\r\n", CSV_HEADER);
     return;
   }
 

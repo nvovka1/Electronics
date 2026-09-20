@@ -50,9 +50,12 @@ class LittleFsPort : public FileSystemPort {
 
   bool remove(const char *path) override { return LittleFS.remove(path); }
 
-  uint32_t list(const char *directory, DirEntry *out, uint32_t max) override {
+  uint32_t list(const char *directory, const char *suffix, DirEntry *out,
+                uint32_t max) override {
     File folder = LittleFS.open(directory);
     if (!folder || !folder.isDirectory()) return 0;
+
+    const size_t suffixLength = suffix == nullptr ? 0 : strlen(suffix);
 
     uint32_t count = 0;
     File entry = folder.openNextFile();
@@ -65,10 +68,18 @@ class LittleFsPort : public FileSystemPort {
         const char *slash = strrchr(name, '/');
         if (slash != nullptr) name = slash + 1;
 
-        strncpy(out[count].name, name, sizeof(out[count].name) - 1);
-        out[count].name[sizeof(out[count].name) - 1] = 0;
-        out[count].size = entry.size();
-        count++;
+        const size_t nameLength = strlen(name);
+        const bool matches =
+            suffixLength == 0 ||
+            (nameLength >= suffixLength &&
+             strcmp(name + nameLength - suffixLength, suffix) == 0);
+
+        if (matches) {
+          strncpy(out[count].name, name, sizeof(out[count].name) - 1);
+          out[count].name[sizeof(out[count].name) - 1] = 0;
+          out[count].size = entry.size();
+          count++;
+        }
       }
       entry.close();
       entry = folder.openNextFile();
@@ -106,7 +117,7 @@ bool storeBegin() {
 
   if (!LittleFS.exists("/f")) LittleFS.mkdir("/f");
 
-  if (!_flightLog.begin(&_port, FsReserveBytes)) {
+  if (!_flightLog.begin(&_port, FsReserveBytes, FlightsKeptOnBoard)) {
     LOG_ERROR("fs", "flight log init failed");
     return false;
   }

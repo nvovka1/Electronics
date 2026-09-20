@@ -68,6 +68,10 @@ static void loadFields() {
     settings.logRateHz = LogRateHzDefault;
   }
   settings.uploadEnabled = _preferences.getBool("upload", true);
+  settings.wifiTxPowerDbm = (int8_t)_preferences.getChar("txpower", WifiTxPowerDbmDefault);
+  if (settings.wifiTxPowerDbm < 2 || settings.wifiTxPowerDbm > 20) {
+    settings.wifiTxPowerDbm = WifiTxPowerDbmDefault;
+  }
   settings.bootCount = _preferences.getULong("boots", 0);
 
   _preferences.end();
@@ -153,6 +157,15 @@ bool settingsSaveUploadEnabled(bool enabled) {
   const bool stored = _preferences.putBool("upload", enabled) > 0;
   _preferences.end();
   if (stored) settings.uploadEnabled = enabled;
+  return stored;
+}
+
+bool settingsSaveWifiTxPower(int8_t dbm) {
+  if (dbm < 2 || dbm > 20) return false;
+  _preferences.begin(Namespace, false);
+  const bool stored = _preferences.putChar("txpower", dbm) > 0;
+  _preferences.end();
+  if (stored) settings.wifiTxPowerDbm = dbm;
   return stored;
 }
 

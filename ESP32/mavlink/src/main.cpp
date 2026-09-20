@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_task_wdt.h>
 
 #include "config.h"
 #include "log.h"
@@ -48,6 +49,25 @@ void setup() {
   // This line is what tells that apart from the aircraft being switched off.
   logPrintf(cleanStart ? LevelInfo : LevelWarn, "sys", "boot, reset reason %d",
             (int)resetReason);
+
+  // Bringing the radio up is what collapses a marginal supply - not
+  // transmitting, the moment the radio is switched on. So a board that browned
+  // out last time does it again immediately, and the result is a boot loop that
+  // records nothing at all. Holding WiFi off for this boot turns that into a
+  // board that logs perfectly and simply does not upload, which is the failure
+  // this whole design is arranged around.
+  //
+  // A clean power-on clears it, so the way back is to fix the supply and switch
+  // the board off and on.
+  if (resetReason == ESP_RST_BROWNOUT) netHoldWifi();
+
+  // Twenty seconds rather than the default five. A TLS handshake on this chip
+  // is seconds of arithmetic during which the task never blocks, so the idle
+  // task on that core cannot run and the watchdog fires - killing a board that
+  // is working perfectly, mid-upload, and leaving a larger backlog to hand the
+  // next boot. Still a watchdog: twenty seconds is far beyond anything here
+  // that is not genuinely wedged.
+  esp_task_wdt_init(20, true);
 
   settingsLoad();
 

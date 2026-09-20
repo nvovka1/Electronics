@@ -21,6 +21,11 @@ struct Settings {
   uint32_t mavBaud;
   uint32_t logRateHz;
 
+  // WiFi transmit power in dBm. Lower means smaller current peaks, which is
+  // exactly what a marginal supply cannot survive. Settable so the threshold
+  // can be found on the bench without a rebuild between every try.
+  int8_t wifiTxPowerDbm;
+
   // Uploading can be switched off without touching the logging. Useful on the
   // bench, where the interesting question is usually whether rows are being
   // written at all, and a service that is asleep adds twenty seconds of noise
@@ -46,6 +51,7 @@ bool settingsSaveApiKey(const char *key);
 bool settingsSaveMavBaud(uint32_t baud);
 bool settingsSaveLogRate(uint32_t hertz);
 bool settingsSaveUploadEnabled(bool enabled);
+bool settingsSaveWifiTxPower(int8_t dbm);
 
 // Back to what the image was built with. Does not touch the boot count: how
 // many times this board has started is a fact about the board, not a setting,

@@ -55,13 +55,20 @@ class FakeFs : public FileSystemPort {
 
   bool remove(const char *path) override { return _files.erase(path) > 0; }
 
-  uint32_t list(const char *directory, DirEntry *out, uint32_t max) override {
+  uint32_t list(const char *directory, const char *suffix, DirEntry *out,
+                uint32_t max) override {
     const std::string prefix = std::string(directory) + "/";
+    const std::string wanted = suffix == nullptr ? std::string() : std::string(suffix);
     uint32_t count = 0;
     for (const auto &entry : _files) {
       if (count >= max) break;
       if (entry.first.rfind(prefix, 0) != 0) continue;
       const std::string name = entry.first.substr(prefix.size());
+      if (!wanted.empty() &&
+          (name.size() < wanted.size() ||
+           name.compare(name.size() - wanted.size(), wanted.size(), wanted) != 0)) {
+        continue;
+      }
       strncpy(out[count].name, name.c_str(), sizeof(out[count].name) - 1);
       out[count].name[sizeof(out[count].name) - 1] = 0;
       out[count].size = (uint32_t)entry.second.size();
@@ -80,7 +87,7 @@ class FakeFs : public FileSystemPort {
 
   std::string contents(const char *path) { return _files[path]; }
 
- private:
+ protected:
   uint32_t _capacity;
   std::map<std::string, std::string> _files;
 };
@@ -350,7 +357,7 @@ static void test_row_index_is_read_from_the_line(void) {
 static void test_flight_starts_with_the_header(void) {
   FakeFs filesystem(100000);
   FlightLog flightLog;
-  TEST_ASSERT_TRUE(flightLog.begin(&filesystem, 1000));
+  TEST_ASSERT_TRUE(flightLog.begin(&filesystem, 1000, FlightsMax));
   TEST_ASSERT_TRUE(flightLog.openFlight(1, CSV_HEADER));
 
   const std::string contents = filesystem.contents("/f/1.csv");
@@ -367,7 +374,7 @@ static void test_flight_starts_with_the_header(void) {
 static void test_rows_are_appended_and_indexed(void) {
   FakeFs filesystem(100000);
   FlightLog flightLog;
-  flightLog.begin(&filesystem, 1000);
+  flightLog.begin(&filesystem, 1000, FlightsMax);
   flightLog.openFlight(1, CSV_HEADER);
 
   TEST_ASSERT_EQUAL_UINT32(0, flightLog.nextIndex());
@@ -380,7 +387,7 @@ static void test_rows_are_appended_and_indexed(void) {
 static void test_read_chunk_never_splits_a_row(void) {
   FakeFs filesystem(100000);
   FlightLog flightLog;
-  flightLog.begin(&filesystem, 1000);
+  flightLog.begin(&filesystem, 1000, FlightsMax);
   flightLog.openFlight(1, CSV_HEADER);
 
   flightLog.appendRow("0,aaaa\n", 7);
@@ -402,14 +409,14 @@ static void test_uploaded_cursor_survives_a_reopen(void) {
 
   {
     FlightLog flightLog;
-    flightLog.begin(&filesystem, 1000);
+    flightLog.begin(&filesystem, 1000, FlightsMax);
     flightLog.openFlight(1, CSV_HEADER);
     flightLog.appendRow("0,aaaa\n", 7);
     TEST_ASSERT_TRUE(flightLog.setUploaded(1, 4242));
   }
 
   FlightLog reopened;
-  reopened.begin(&filesystem, 1000);
+  reopened.begin(&filesystem, 1000, FlightsMax);
 
   FlightInfo info;
   TEST_ASSERT_TRUE(reopened.flightInfo(1, info));
@@ -419,7 +426,7 @@ static void test_uploaded_cursor_survives_a_reopen(void) {
 static void test_a_flight_with_no_meta_file_reads_as_not_uploaded(void) {
   FakeFs filesystem(100000);
   FlightLog flightLog;
-  flightLog.begin(&filesystem, 1000);
+  flightLog.begin(&filesystem, 1000, FlightsMax);
   flightLog.openFlight(1, CSV_HEADER);
   flightLog.appendRow("0,aaaa\n", 7);
 
@@ -437,7 +444,7 @@ static void test_a_flight_with_no_meta_file_reads_as_not_uploaded(void) {
 static void test_flights_come_back_oldest_first(void) {
   FakeFs filesystem(100000);
   FlightLog flightLog;
-  flightLog.begin(&filesystem, 1000);
+  flightLog.begin(&filesystem, 1000, FlightsMax);
 
   flightLog.openFlight(9, CSV_HEADER);
   flightLog.openFlight(3, CSV_HEADER);
@@ -455,7 +462,7 @@ static void test_flights_come_back_oldest_first(void) {
 static void test_uploaded_flights_are_dropped_before_unuploaded_ones(void) {
   FakeFs filesystem(100000);
   FlightLog flightLog;
-  flightLog.begin(&filesystem, 1000);
+  flightLog.begin(&filesystem, 1000, FlightsMax);
 
   flightLog.openFlight(1, CSV_HEADER);
   flightLog.appendRow("0,aaaa\n", 7);
@@ -479,7 +486,7 @@ static void test_a_full_disk_drops_history_rather_than_the_current_flight(void) 
   FakeFs filesystem(headerBytes * 2 + 220);
 
   FlightLog flightLog;
-  flightLog.begin(&filesystem, 32);
+  flightLog.begin(&filesystem, 32, FlightsMax);
 
   flightLog.openFlight(1, CSV_HEADER);
   for (int i = 0; i < 10; i++) flightLog.appendRow("0,aaaaaaaaa\n", 12);
@@ -495,6 +502,76 @@ static void test_a_full_disk_drops_history_rather_than_the_current_flight(void) 
   TEST_ASSERT_FALSE(filesystem.exists("/f/1.csv"));
   TEST_ASSERT_TRUE(filesystem.exists("/f/2.csv"));
   TEST_ASSERT_EQUAL_UINT32(10, flightLog.nextIndex());
+}
+
+static void test_a_listing_is_not_halved_by_the_meta_files(void) {
+  FakeFs filesystem(1000000);
+  FlightLog flightLog;
+  flightLog.begin(&filesystem, 1000, FlightsMax);
+
+  // Two files per flight. Before the listing filtered by suffix, FlightsMax
+  // entries covered only half this many flights and the rest became invisible:
+  // never uploaded, never deleted, holding their space for ever.
+  for (uint16_t id = 1; id <= 40; id++) flightLog.openFlight(id, CSV_HEADER);
+
+  FlightInfo flights[FlightsMax];
+  TEST_ASSERT_EQUAL_UINT32(40, flightLog.listFlights(flights, FlightsMax));
+}
+
+static void test_the_board_keeps_only_so_many_flights(void) {
+  FakeFs filesystem(1000000);
+  FlightLog flightLog;
+  flightLog.begin(&filesystem, 1000, 5);
+
+  for (uint16_t id = 1; id <= 12; id++) flightLog.openFlight(id, CSV_HEADER);
+
+  FlightInfo flights[FlightsMax];
+  const uint32_t count = flightLog.listFlights(flights, FlightsMax);
+
+  // Every power-on starts a flight, so without this an afternoon of switching
+  // on and off fills the directory with tiny files.
+  TEST_ASSERT_EQUAL_UINT32(5, count);
+  TEST_ASSERT_EQUAL_UINT16(12, flights[count - 1].id);
+}
+
+static void test_an_un_uploaded_flight_is_never_pruned_by_count(void) {
+  FakeFs filesystem(1000000);
+  FlightLog flightLog;
+  flightLog.begin(&filesystem, 1000, 2);
+
+  flightLog.openFlight(1, CSV_HEADER);
+  flightLog.appendRow("0,aaaa", 6);
+  flightLog.setUploaded(1, 0);
+
+  for (uint16_t id = 2; id <= 8; id++) flightLog.openFlight(id, CSV_HEADER);
+
+  // It is over the limit and it is the oldest, and it still stays: the service
+  // has never acknowledged it, so it exists nowhere else.
+  TEST_ASSERT_TRUE(filesystem.exists("/f/1.csv"));
+}
+
+static void test_a_meta_file_outlives_a_csv_that_could_not_be_deleted(void) {
+  // A port that refuses the delete - a real one can, and the old code removed
+  // the meta anyway, leaving a flight that read as never uploaded, re-sent
+  // itself in full and could never be deleted for space.
+  class StubbornFs : public FakeFs {
+   public:
+    using FakeFs::FakeFs;
+    bool remove(const char *path) override {
+      const std::string name(path);
+      if (name.size() >= 4 && name.compare(name.size() - 4, 4, ".csv") == 0) return false;
+      return FakeFs::remove(path);
+    }
+  };
+
+  StubbornFs filesystem(1000000);
+  FlightLog flightLog;
+  flightLog.begin(&filesystem, 1000, FlightsMax);
+  flightLog.openFlight(1, CSV_HEADER);
+  flightLog.openFlight(2, CSV_HEADER);
+
+  TEST_ASSERT_FALSE(flightLog.removeFlight(1));
+  TEST_ASSERT_TRUE(filesystem.exists("/f/1.mta"));
 }
 
 // -------------------------------------------------------------------- setup
@@ -531,6 +608,10 @@ int main(int, char **) {
   RUN_TEST(test_flights_come_back_oldest_first);
   RUN_TEST(test_uploaded_flights_are_dropped_before_unuploaded_ones);
   RUN_TEST(test_a_full_disk_drops_history_rather_than_the_current_flight);
+  RUN_TEST(test_a_listing_is_not_halved_by_the_meta_files);
+  RUN_TEST(test_the_board_keeps_only_so_many_flights);
+  RUN_TEST(test_an_un_uploaded_flight_is_never_pruned_by_count);
+  RUN_TEST(test_a_meta_file_outlives_a_csv_that_could_not_be_deleted);
 
   return UNITY_END();
 }

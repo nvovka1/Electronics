@@ -18,6 +18,11 @@
 static WiFiClientSecure _secureClient;
 static WiFiClient _plainClient;
 
+// File scope so the TLS connection survives between batches. A local one is
+// destroyed with the function, which makes setReuse a lie and every batch a
+// fresh handshake.
+static HTTPClient _http;
+
 // Allocated once. A 16 kB body built and freed on every batch fragments the
 // heap that the TLS handshake also needs, and the handshake is the allocation
 // that fails first.
@@ -30,6 +35,23 @@ static bool _accessPointActive = false;
 static int _lastStatus = 0;
 static uint32_t _rowsUploaded = 0;
 static uint32_t _backoffMs = 0;
+static bool _wifiHeldOff = false;
+
+// The flight currently being drained. Kept between cycles so the common case -
+// the same flight, one chunk after another - costs one file lookup instead of a
+// walk of the whole directory. That walk opens a meta file per flight, and with
+// thirty flights on the board it held the log lock long enough for the recorder
+// to time out and drop rows, which is the network interfering with the record.
+static uint16_t _activeFlight = 0;
+
+void netHoldWifi() { _wifiHeldOff = true; }
+
+void netEnableWifi() {
+  _wifiHeldOff = false;
+  LOG_WARN("net", "wifi hold lifted by hand");
+}
+
+bool netWifiHeldOff() { return _wifiHeldOff; }
 
 bool netIsStationConnected() { return _stationConnected; }
 bool netIsAccessPoint() { return _accessPointActive; }
@@ -49,6 +71,11 @@ static bool joinStation() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);
+
+  // Before any association attempt. The current peak this limits is the one
+  // that browns out a marginal supply, and setting it afterwards would be
+  // setting it after the moment that matters.
+  WiFi.setTxPower((wifi_power_t)(settings.wifiTxPowerDbm * 4));
   WiFi.begin(settings.ssid, settings.password);
 
   LOG_INFO("net", "joining %s", settings.ssid);
@@ -153,22 +180,29 @@ static int postBody(uint32_t *nextIndex) {
 
   const bool secure = strncmp(settings.baseUrl, "https", 5) == 0;
 
-  HTTPClient http;
-  http.setTimeout(HttpTimeoutMs);
-  http.setConnectTimeout(HttpTimeoutMs);
-  http.setReuse(false);
+  _http.setTimeout(HttpTimeoutMs);
+  _http.setConnectTimeout(HttpTimeoutMs);
+
+  // Reused, and the client is file scope so there is something to reuse.
+  //
+  // A TLS handshake on this chip is seconds of solid arithmetic during which
+  // the task never blocks, so the idle task on that core never runs and the
+  // task watchdog - which allows five - kills the board. One handshake is
+  // survivable; a backlog of flights uploading back to back is a reboot loop,
+  // and the reboot makes the backlog worse.
+  _http.setReuse(true);
 
   const bool opened =
-      secure ? http.begin(_secureClient, url) : http.begin(_plainClient, url);
+      secure ? _http.begin(_secureClient, url) : _http.begin(_plainClient, url);
   if (!opened) return -1000;
 
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader(F("X-Api-Key"), settings.apiKey);
+  _http.addHeader("Content-Type", "application/json");
+  _http.addHeader(F("X-Api-Key"), settings.apiKey);
 
-  const int status = http.POST((uint8_t *)_body, strlen(_body));
+  const int status = _http.POST((uint8_t *)_body, strlen(_body));
 
   if (status >= 200 && status < 300) {
-    const String payload = http.getString();
+    const String payload = _http.getString();
     JsonDocument document;
     if (deserializeJson(document, payload) == DeserializationError::Ok) {
       if (!document["nextIndex"].isNull()) {
@@ -177,7 +211,9 @@ static int postBody(uint32_t *nextIndex) {
     }
   }
 
-  http.end();
+  // With reuse set, this releases the request but keeps the connection, so the
+  // next batch skips the handshake entirely.
+  _http.end();
   return status;
 }
 
@@ -206,6 +242,33 @@ static uint32_t acceptedBytes(const char *chunk, uint32_t chunkLength, uint32_t 
   return accepted;
 }
 
+// Records how far the service has got, and says so loudly when it cannot.
+//
+// This used to be three copies of `if (storeLockLog(500)) { ...; }` with no
+// else, so a cursor that failed to save left the uploader re-sending the same
+// rows for ever while logging a cheerful success line with an unchanging
+// number. The re-send is harmless - the far side discards duplicates - but the
+// flight never finishes and never becomes deletable, and nothing said why.
+//
+// The timeout is generous because losing the cursor costs far more than a
+// stalled upload cycle does.
+static bool saveCursor(uint16_t flightId, uint32_t offset) {
+  if (!storeLockLog(3000)) {
+    LOG_WARN("net", "flight %u cursor %lu not saved: log busy", (unsigned)flightId,
+             (unsigned long)offset);
+    return false;
+  }
+
+  const bool saved = storeFlightLog().setUploaded(flightId, offset);
+  storeUnlockLog();
+
+  if (!saved) {
+    LOG_ERROR("net", "flight %u cursor %lu WRITE FAILED", (unsigned)flightId,
+              (unsigned long)offset);
+  }
+  return saved;
+}
+
 enum UploadOutcome { UploadNothingToDo, UploadProgressed, UploadFailed };
 
 static UploadOutcome uploadOnce() {
@@ -213,19 +276,39 @@ static UploadOutcome uploadOnce() {
 
   FlightLog &flightLog = storeFlightLog();
 
-  FlightInfo flights[FlightsMax];
-  const uint32_t count = flightLog.listFlights(flights, FlightsMax);
-
   uint16_t flightId = 0;
   uint32_t offset = 0;
   uint32_t chunkLength = 0;
 
-  for (uint32_t i = 0; i < count; i++) {
-    if (flights[i].uploaded >= flights[i].bytes) continue;
-    flightId = flights[i].id;
-    offset = flights[i].uploaded;
+  // The cheap path: one lookup for the flight already being drained.
+  if (_activeFlight != 0) {
+    FlightInfo active;
+    if (flightLog.flightInfo(_activeFlight, active) && active.uploaded < active.bytes) {
+      flightId = active.id;
+      offset = active.uploaded;
+    } else {
+      // Finished, or deleted under us by the space reclaimer.
+      _activeFlight = 0;
+    }
+  }
+
+  // The expensive path, only when there is no flight in hand: walk the
+  // directory and pick the oldest with rows the service has not seen.
+  if (flightId == 0) {
+    FlightInfo flights[FlightsMax];
+    const uint32_t count = flightLog.listFlights(flights, FlightsMax);
+
+    for (uint32_t i = 0; i < count; i++) {
+      if (flights[i].uploaded >= flights[i].bytes) continue;
+      flightId = flights[i].id;
+      offset = flights[i].uploaded;
+      _activeFlight = flights[i].id;
+      break;
+    }
+  }
+
+  if (flightId != 0) {
     chunkLength = flightLog.readChunk(flightId, offset, _chunk, UploadChunkBytes);
-    break;
   }
 
   storeUnlockLog();
@@ -243,10 +326,7 @@ static UploadOutcome uploadOnce() {
     // Nothing convertible in the chunk at all. Advancing past it stops the
     // cursor jamming on rows that will never be accepted; they are still in the
     // file on the board.
-    if (storeLockLog(500)) {
-      storeFlightLog().setUploaded(flightId, offset + chunkLength);
-      storeUnlockLog();
-    }
+    saveCursor(flightId, offset + chunkLength);
     LOG_WARN("net", "flight %u chunk skipped at %lu", (unsigned)flightId,
              (unsigned long)offset);
     return UploadProgressed;
@@ -267,10 +347,7 @@ static UploadOutcome uploadOnce() {
   // a lost acknowledgement repairs itself.
   if (nextIndex < firstIndex) {
     const uint32_t headerEnd = strlen(CSV_HEADER) + 1;
-    if (storeLockLog(500)) {
-      storeFlightLog().setUploaded(flightId, headerEnd);
-      storeUnlockLog();
-    }
+    saveCursor(flightId, headerEnd);
     LOG_WARN("net", "flight %u rewound: service wants %lu, we sent from %lu",
              (unsigned)flightId, (unsigned long)nextIndex, (unsigned long)firstIndex);
     return UploadProgressed;
@@ -283,16 +360,20 @@ static UploadOutcome uploadOnce() {
     return UploadFailed;
   }
 
-  if (storeLockLog(500)) {
-    storeFlightLog().setUploaded(flightId, offset + accepted);
-    storeUnlockLog();
-  }
+  const bool moved = saveCursor(flightId, offset + accepted);
 
   _rowsUploaded += rows;
-  LOG_DEBUG("net", "flight %u +%lu rows, cursor %lu", (unsigned)flightId, (unsigned long)rows,
-            (unsigned long)(offset + accepted));
 
-  return UploadProgressed;
+  // Both ends of the move, not just the new one. A cursor that is not advancing
+  // is the whole failure, and a line showing only where it landed looks
+  // identical whether it moved or not.
+  LOG_DEBUG("net", "flight %u +%lu rows, %lu -> %lu", (unsigned)flightId, (unsigned long)rows,
+            (unsigned long)offset, (unsigned long)(offset + accepted));
+
+  // Not Progressed. Going straight round again would re-send the same rows as
+  // fast as the network allows; the backoff makes a stuck cursor slow instead
+  // of hot, and leaves the log readable.
+  return moved ? UploadProgressed : UploadFailed;
 }
 
 // ------------------------------------------------------------------ the task
@@ -306,8 +387,13 @@ static void netTask(void *) {
     for (;;) vTaskDelay(pdMS_TO_TICKS(10000));
   }
 
-  _stationConnected = joinStation();
-  if (!_stationConnected) raiseAccessPoint();
+  if (_wifiHeldOff) {
+    LOG_ERROR("net", "wifi held off: last reset was a brownout");
+    LOG_ERROR("net", "recording continues; fix the supply, then `wifi on` or power-cycle");
+  } else {
+    _stationConnected = joinStation();
+    if (!_stationConnected) raiseAccessPoint();
+  }
 
   uint32_t lastRssiMs = 0;
 
@@ -317,6 +403,11 @@ static void netTask(void *) {
     if (_stationConnected && WiFi.status() != WL_CONNECTED) {
       LOG_WARN("net", "station dropped");
       _stationConnected = false;
+    }
+
+    if (_wifiHeldOff) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
     }
 
     if (!_stationConnected && !_accessPointActive) {

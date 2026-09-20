@@ -332,8 +332,21 @@ static void webTask(void *) {
     _server.send(404, "text/plain", "not found\n");
   });
 
+  // WiFiServer::begin() opens an lwIP socket, and lwIP's mailbox does not exist
+  // until an interface is up. Calling it before then asserts inside the TCP/IP
+  // thread and takes the whole board down.
+  //
+  // This was always a race with the network task, and one this task happened to
+  // win on most boots. It loses every time once WiFi is held off after a
+  // brownout, because then there is no interface coming at all - so the wait is
+  // unbounded on purpose. A board with no network has nothing to serve, and the
+  // recording does not care either way.
+  while (!netIsStationConnected() && !netIsAccessPoint()) {
+    vTaskDelay(pdMS_TO_TICKS(250));
+  }
+
   _server.begin();
-  LOG_INFO("web", "serving on port 80");
+  LOG_INFO("web", "serving on %s port 80", netAddress().c_str());
 
   for (;;) {
     _server.handleClient();
