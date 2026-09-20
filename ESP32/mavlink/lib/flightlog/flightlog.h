@@ -20,6 +20,11 @@
 // column, so the uploader reads it out of the data; a second copy kept
 // alongside is a second copy that can disagree.
 
+// The most flights any one listing can return. It bounds a stack array, so it
+// cannot be large - and it is why listings filter by suffix: without that, the
+// two files per flight halve it, and a board with more flights than this would
+// silently stop seeing its older ones. Invisible flights are never uploaded and
+// never deleted, so they keep their space for ever.
 static const uint32_t FlightsMax = 48;
 
 struct FlightInfo {
@@ -48,7 +53,11 @@ class FileSystemPort {
   virtual bool append(const char *path, const char *data, uint32_t length) = 0;
   virtual uint32_t read(const char *path, uint32_t offset, char *out, uint32_t max) = 0;
   virtual bool remove(const char *path) = 0;
-  virtual uint32_t list(const char *directory, DirEntry *out, uint32_t max) = 0;
+  /// Entries in `directory` whose name ends in `suffix`. Filtering here rather
+  /// than in the caller is what keeps one flight's two files from costing two
+  /// of the caller's limited slots.
+  virtual uint32_t list(const char *directory, const char *suffix, DirEntry *out,
+                        uint32_t max) = 0;
   virtual uint32_t totalBytes() = 0;
   virtual uint32_t usedBytes() = 0;
 };
@@ -64,7 +73,11 @@ class FlightLog {
   // `reserveBytes` is the free space never knowingly consumed. LittleFS needs
   // room to manoeuvre and a filesystem run to the last byte fails its writes in
   // ways that are much harder to recover from than a deleted old flight.
-  bool begin(FileSystemPort *filesystem, uint32_t reserveBytes);
+  /// `maxFlights` caps how many are kept on the board at all. Space alone is
+  /// not enough of a bound: every power-on starts a flight, so a day of
+  /// switching on and off makes hundreds of small files, and beyond FlightsMax
+  /// the oldest stop being visible to the uploader at all.
+  bool begin(FileSystemPort *filesystem, uint32_t reserveBytes, uint32_t maxFlights);
 
   // Starts a new flight, writing the CSV header. Returns false if the file
   // could not be created - the caller keeps running either way, because a board
@@ -110,6 +123,13 @@ class FlightLog {
   // happening now, which is why `force` exists at all.
   uint16_t dropOldest(bool force);
 
+  /// Deletes fully-uploaded flights until at most `maxFlights` remain, oldest
+  /// first. Returns how many went. Never touches the open flight, and never
+  /// deletes one the service has not acknowledged - a board that has been
+  /// offline for a week keeps everything and runs out of space instead, which
+  /// is the failure that loses the least.
+  uint32_t pruneToLimit();
+
  private:
   bool metaPath(uint16_t id, char *out, size_t max) const;
   bool csvPath(uint16_t id, char *out, size_t max) const;
@@ -118,6 +138,7 @@ class FlightLog {
 
   FileSystemPort *_filesystem = nullptr;
   uint32_t _reserveBytes = 0;
+  uint32_t _maxFlights = FlightsMax;
   uint16_t _currentId = 0;
   uint32_t _nextIndex = 0;
 };

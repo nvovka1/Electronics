@@ -416,6 +416,24 @@ static void test_uploaded_cursor_survives_a_reopen(void) {
   TEST_ASSERT_EQUAL_UINT32(4242, info.uploaded);
 }
 
+static void test_a_flight_with_no_meta_file_reads_as_not_uploaded(void) {
+  FakeFs filesystem(100000);
+  FlightLog flightLog;
+  flightLog.begin(&filesystem, 1000);
+  flightLog.openFlight(1, CSV_HEADER);
+  flightLog.appendRow("0,aaaa\n", 7);
+
+  // A flight recorded by an older build, or one whose meta was lost. Ordinary,
+  // not an error: it reads as nothing uploaded, which is the safe answer -
+  // the rows get sent again rather than skipped.
+  TEST_ASSERT_TRUE(filesystem.remove("/f/1.mta"));
+
+  FlightInfo info;
+  TEST_ASSERT_TRUE(flightLog.flightInfo(1, info));
+  TEST_ASSERT_EQUAL_UINT32(0, info.uploaded);
+  TEST_ASSERT_TRUE(info.bytes > 0);
+}
+
 static void test_flights_come_back_oldest_first(void) {
   FakeFs filesystem(100000);
   FlightLog flightLog;
@@ -509,6 +527,7 @@ int main(int, char **) {
   RUN_TEST(test_rows_are_appended_and_indexed);
   RUN_TEST(test_read_chunk_never_splits_a_row);
   RUN_TEST(test_uploaded_cursor_survives_a_reopen);
+  RUN_TEST(test_a_flight_with_no_meta_file_reads_as_not_uploaded);
   RUN_TEST(test_flights_come_back_oldest_first);
   RUN_TEST(test_uploaded_flights_are_dropped_before_unuploaded_ones);
   RUN_TEST(test_a_full_disk_drops_history_rather_than_the_current_flight);

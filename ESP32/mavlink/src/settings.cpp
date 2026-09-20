@@ -24,6 +24,11 @@ static void deriveSerial(char *out, size_t size) {
            (unsigned)((mac >> 32) & 0xff), (unsigned)((mac >> 40) & 0xff));
 }
 
+// The preferences object must already be open.
+static String readString(const char *key, const char *fallback) {
+  return _preferences.isKey(key) ? _preferences.getString(key) : String(fallback);
+}
+
 // Everything except the boot counter. Split out because a reset re-reads the
 // settings but is not itself a boot, and bumping the counter there would give
 // two different flights the same number.
@@ -33,11 +38,15 @@ static void loadFields() {
   char derived[24];
   deriveSerial(derived, sizeof(derived));
 
-  const String storedSerial = _preferences.getString("serial", derived);
-  const String storedSsid = _preferences.getString("ssid", NET_DEFAULT_SSID);
-  const String storedPassword = _preferences.getString("pass", NET_DEFAULT_PASS);
-  const String storedUrl = _preferences.getString("url", NET_DEFAULT_URL);
-  const String storedKey = _preferences.getString("key", NET_DEFAULT_KEY);
+  // isKey first, rather than leaning on getString's default. Preferences logs
+  // at ERROR when a key is absent even when a default was supplied, so a
+  // factory-fresh board greets you with a screen of red about settings that are
+  // working exactly as intended.
+  const String storedSerial = readString("serial", derived);
+  const String storedSsid = readString("ssid", NET_DEFAULT_SSID);
+  const String storedPassword = readString("pass", NET_DEFAULT_PASS);
+  const String storedUrl = readString("url", NET_DEFAULT_URL);
+  const String storedKey = readString("key", NET_DEFAULT_KEY);
 
   copyInto(settings.serial, sizeof(settings.serial), storedSerial.c_str());
   copyInto(settings.ssid, sizeof(settings.ssid), storedSsid.c_str());

@@ -19,9 +19,10 @@ bool FlightLog::metaPath(uint16_t id, char *out, size_t max) const {
   return snprintf(out, max, "%s/%u.mta", FlightDirectory, (unsigned)id) > 0;
 }
 
-bool FlightLog::begin(FileSystemPort *filesystem, uint32_t reserveBytes) {
+bool FlightLog::begin(FileSystemPort *filesystem, uint32_t reserveBytes, uint32_t maxFlights) {
   _filesystem = filesystem;
   _reserveBytes = reserveBytes;
+  _maxFlights = (maxFlights == 0 || maxFlights > FlightsMax) ? FlightsMax : maxFlights;
   _currentId = 0;
   _nextIndex = 0;
   return _filesystem != nullptr;
@@ -37,6 +38,14 @@ uint32_t FlightLog::freeBytes() {
 uint32_t FlightLog::readUploaded(uint16_t id) {
   char path[32];
   if (!metaPath(id, path, sizeof(path))) return 0;
+
+  // Asked first rather than discovered by the read failing. A flight with no
+  // meta file is an ordinary state - one recorded by an older build, or one
+  // whose meta was lost - and on LittleFS an open-for-read of a missing file
+  // logs at ERROR. listFlights runs on every upload cycle and every page
+  // refresh, so that one missing file becomes a permanent scroll of errors
+  // about a situation that is entirely fine.
+  if (!_filesystem->exists(path)) return 0;
 
   char buffer[48];
   const uint32_t read = _filesystem->read(path, 0, buffer, sizeof(buffer) - 1);
@@ -65,7 +74,7 @@ uint32_t FlightLog::listFlights(FlightInfo *out, uint32_t max) {
   if (_filesystem == nullptr || out == nullptr || max == 0) return 0;
 
   DirEntry entries[FlightsMax];
-  const uint32_t found = _filesystem->list(FlightDirectory, entries, FlightsMax);
+  const uint32_t found = _filesystem->list(FlightDirectory, ".csv", entries, FlightsMax);
 
   uint32_t count = 0;
   for (uint32_t i = 0; i < found && count < max; i++) {
@@ -143,9 +152,12 @@ bool FlightLog::removeFlight(uint16_t id) {
   if (!csvPath(id, csv, sizeof(csv)) || !metaPath(id, meta, sizeof(meta))) return false;
 
   const bool removed = _filesystem->remove(csv);
-  // The meta file may legitimately not exist - a flight that was never uploaded
-  // still has rows worth keeping - so its removal is not part of the verdict.
-  _filesystem->remove(meta);
+
+  // The meta only goes when the rows have. Removing it while the csv survived
+  // leaves a flight that reads as never uploaded, so it is sent again in full
+  // and can never be deleted for space - and the only evidence is one line of
+  // filesystem noise at the time it happened.
+  if (removed || !_filesystem->exists(csv)) _filesystem->remove(meta);
 
   if (removed && id == _currentId) {
     _currentId = 0;
@@ -166,6 +178,23 @@ bool FlightLog::ensureSpace(uint32_t wanted) {
   }
 
   return freeBytes() >= wanted;
+}
+
+uint32_t FlightLog::pruneToLimit() {
+  FlightInfo flights[FlightsMax];
+  uint32_t count = listFlights(flights, FlightsMax);
+
+  uint32_t deleted = 0;
+
+  for (uint32_t i = 0; i < count && (count - deleted) > _maxFlights; i++) {
+    if (flights[i].id == _currentId) continue;
+    // Not force: an un-uploaded flight is the one thing on this board that
+    // exists nowhere else.
+    if (flights[i].uploaded < flights[i].bytes) continue;
+    if (removeFlight(flights[i].id)) deleted++;
+  }
+
+  return deleted;
 }
 
 bool FlightLog::openFlight(uint16_t id, const char *header) {
@@ -190,6 +219,10 @@ bool FlightLog::openFlight(uint16_t id, const char *header) {
 
   _currentId = id;
   _nextIndex = 0;
+
+  // Once the new flight is the current one, so the prune cannot take it.
+  pruneToLimit();
+
   return true;
 }
 

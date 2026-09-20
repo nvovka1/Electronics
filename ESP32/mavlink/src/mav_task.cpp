@@ -12,6 +12,7 @@
 static HardwareSerial _link(MavUartNumber);
 
 static uint32_t _messagesSeen = 0;
+static uint32_t _bytesSeen = 0;
 static uint32_t _parseErrors = 0;
 static uint32_t _lastHeartbeatMs = 0;
 static bool _haveHeartbeat = false;
@@ -109,6 +110,7 @@ static void mavTask(void *) {
     // drops are in the middle of frames and cost the frames either side too.
     while (_link.available() > 0) {
       const uint8_t byte = (uint8_t)_link.read();
+      _bytesSeen++;
 
       if (mavlink_parse_char(MAVLINK_COMM_0, byte, &message, &status) != MAVLINK_FRAMING_OK) {
         continue;
@@ -163,4 +165,5 @@ uint32_t mavLinkAgeMs() {
 }
 
 uint32_t mavMessagesSeen() { return _messagesSeen; }
+uint32_t mavBytesSeen() { return _bytesSeen; }
 uint32_t mavParseErrors() { return _parseErrors; }

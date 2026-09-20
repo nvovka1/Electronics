@@ -47,7 +47,32 @@ the limit of the BEC rather than the limit of the firmware.
 
 ## Which UART
 
-ArduPilot's defaults, which decide how much work this is:
+### Confirmed on this board
+
+Measured on the actual hardware, not derived from a hwdef: **the pad labels map
+one-to-one to ArduPilot's serial numbers.** `T1/R1` is `SERIAL1`, `T3/R3` is
+`SERIAL3`, and so on.
+
+It was worth confirming because this board **does not follow ArduPilot's default
+port roles**. The GPS ships on `SERIAL2`, where the stock default would put it on
+`SERIAL3`. That one difference is what makes the defaults table below misleading
+if read on its own — and it is also what leaves `SERIAL3` free for this project.
+
+**So: wire to `T3/R3` and configure `SERIAL3`.**
+
+| Parameter | Value |
+|---|---|
+| `SERIAL3_PROTOCOL` | `2` |
+| `SERIAL3_BAUD` | `57` |
+
+Check `SERIAL2_PROTOCOL` still reads `5` afterwards. If it does not, the GPS has
+been taken offline, and the symptom is an empty `lat`, `lon` and `utc` for the
+whole flight rather than anything that announces itself.
+
+### The general case
+
+ArduPilot's defaults, which decide how much work this is — useful for a
+different board, but see above for this one:
 
 | Port | Default role | Default protocol |
 |---|---|---|
@@ -94,6 +119,25 @@ the board's hwdef and is **not worth guessing**:
    be `SERIAL1`, and so on.
 5. Pick a free port, set the three parameters below, then **Write Params** and
    reboot the flight controller.
+
+### If the pad numbering does not line up
+
+It often does not. A GPS on the pads marked `2` while `SERIAL3` is the port
+reading `5` means the mapping is offset, and the pad labels cannot be trusted
+for any of the others either.
+
+Rather than solve that puzzle, **configure every unused port at once**.
+ArduPilot will stream MAVLink on as many ports as you ask it to, and whichever
+one your pads turn out to be is then already talking. For every port whose
+`_PROTOCOL` reads `-1`, `1` or `2`, set `_PROTOCOL` to `2` and `_BAUD` to `57`.
+
+Leave alone anything reading `5`, `23` or `16`. And if one port already reads
+MAVLink while you own no telemetry radio, that is likely an onboard Bluetooth
+or wireless module — leave that one too.
+
+Once `status` shows bytes arriving you can put the others back one at a time to
+find which it was, or simply leave them; an enabled MAVLink port with nothing
+attached costs nothing.
 
 Then set, on the port you picked:
 

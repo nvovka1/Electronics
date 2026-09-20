@@ -170,6 +170,8 @@ static void handleStatus() {
   json += netRowsUploaded();
   json += ",\"lastHttpStatus\":";
   json += netLastHttpStatus();
+  json += ",\"bytesSeen\":";
+  json += mavBytesSeen();
   json += ",\"messagesSeen\":";
   json += mavMessagesSeen();
   json += ",\"parseErrors\":";
