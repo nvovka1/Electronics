@@ -24,6 +24,7 @@
 #include <soc/rtc_cntl_reg.h>
 #include "config.h"
 #include "spectrum.h"
+#include "battery.h"
 
 // No reset pin: GPIO 16 is the flash chip-select on the PICO-D4.
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
@@ -94,7 +95,7 @@ void setup() {
   setupDac();
   showStatus("Beep...");
   beep();
-
+  batteryBegin();  
   showStatus("Connecting to " + String(WIFI_SSID), lastReset);
   // WiFi's radio start-up dips the supply for a moment and the brownout
   // detector resets the board; switch it off just for that moment.
@@ -139,7 +140,7 @@ void loop() {
 
     for (size_t i = 0; i < SAMPLES_PER_PACKET; i++) received[i] = int16_t((packet[i] - 128) << 8);
     spectrum.update(received, SAMPLES_PER_PACKET);
-    drawSpectrumScreen(display, spectrum, "SPK <- " + udp.remoteIP().toString());
+    drawSpectrumScreen(display, spectrum, "SPK <- ." + String(udp.remoteIP()[3]) + "  bat " + getBatteryPercent() + "%");
   }
 
   // No audio for a while: back to the status screen.

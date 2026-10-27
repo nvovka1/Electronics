@@ -26,6 +26,7 @@
 #include <soc/rtc_cntl_reg.h>
 #include "config.h"
 #include "spectrum.h"
+#include "battery.h"
 
 constexpr int MIC_SCK = 4;
 constexpr int MIC_WS  = 13;
@@ -113,7 +114,7 @@ void setup() {
   const String lastReset = esp_reset_reason() == ESP_RST_BROWNOUT ? "Last reset: BROWNOUT" : "";
 
   setupMicrophone();
-
+  batteryBegin();
   showStatus("Connecting to " + String(WIFI_SSID), lastReset);
   // WiFi's radio start-up dips the supply for a moment and the brownout
   // detector resets the board; switch it off just for that moment.
@@ -208,5 +209,5 @@ void loop() {
   udp.endPacket();
 
   spectrum.update(samples, SAMPLES_PER_PACKET);
-  drawSpectrumScreen(display, spectrum, "MIC -> " + speakerIp.toString());
+  drawSpectrumScreen(display, spectrum, "MIC -> ." + String(speakerIp[3]) + "  bat " + getBatteryPercent() + "%");
 }

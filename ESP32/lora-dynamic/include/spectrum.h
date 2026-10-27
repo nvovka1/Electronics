@@ -19,7 +19,9 @@ class Spectrum {
   static constexpr float CeilingDb = -20.0f;
 
   Spectrum() {
-    for (int column = 0; column < Width; column++) barDb_[column] = peakDb_[column] = FloorDb;
+    for (int column = 0; column < Width; column++) {
+     barDb_[column] = peakDb_[column] = FloorDb;
+    }
   }
 
   // Updates the bars from the last FftSize of `count` samples (-32768..32767).
