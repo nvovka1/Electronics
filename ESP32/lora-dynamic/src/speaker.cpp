@@ -3,7 +3,8 @@
  * ---------------------------------
  * Joins WiFi, says hello to the mic board every 2 s (UDP broadcast), receives
  * its audio packets and plays them on the ESP32's built-in DAC. The OLED shows
- * what it is doing.
+ * what it is doing. With USE_LORA it listens on the LoRa radio instead and
+ * decodes the mic's Codec2 speech.
  *
  * Wiring (SC8002B S/V/G module -> LoRa32):
  *   V -> 5V     G -> GND    S -> GPIO 25 (DAC1)
@@ -16,6 +17,8 @@
  */
 
 #include <Arduino.h>
+#include <LoRa.h>
+#include <codec2.h>
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
 #include <WiFi.h>
@@ -25,6 +28,10 @@
 #include "config.h"
 #include "spectrum.h"
 #include "battery.h"
+#include "lora_radio.h"
+
+// Codec2 needs a lot of stack; with the default 8 KB loop() crashes.
+SET_LOOP_TASK_STACK_SIZE(32 * 1024);
 
 // No reset pin: GPIO 16 is the flash chip-select on the PICO-D4.
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
@@ -34,6 +41,15 @@ int16_t received[SAMPLES_PER_PACKET];  // the packet as -32768..32767, for the s
 WiFiUDP udp;
 uint8_t packet[SAMPLES_PER_PACKET];
 uint16_t dacFrames[SAMPLES_PER_PACKET * 2];  // stereo: same sample on both channels
+
+// LoRa mode: each packet holds CODEC2_FRAMES_PER_PACKET compressed 20 ms frames.
+CODEC2* codec2 = nullptr;
+uint8_t loraPacket[LORA_PACKET_SIZE];
+int16_t codecFrame[CODEC2_SAMPLES_PER_FRAME];       // one decoded frame, 8 kHz
+int16_t upsampled[CODEC2_SAMPLES_PER_FRAME * 2];    // the same frame at the DAC's 16 kHz
+
+uint32_t packetCount = 0, lastPacketMs = 0;
+uint32_t playEndMs = 0;  // when the audio queued for the DAC runs out
 
 void setupDac() {
   i2s_config_t config = {};
@@ -81,21 +97,21 @@ void showStatus(const String& line1, const String& line2 = "", const String& lin
   Serial.printf("%s | %s | %s\n", line1.c_str(), line2.c_str(), line3.c_str());
 }
 
-void setup() {
-  setCpuFrequencyMhz(80);  // less current, so WiFi start-up doesn't trip the brownout reset
-  Serial.begin(115200);
+void showWaiting() {
+  if (USE_LORA) showStatus("LoRa " + String(LORA_FREQUENCY_HZ / 1e6, 3) + " MHz", "Waiting for mic");
+  else showStatus("IP " + WiFi.localIP().toString(), "Waiting for mic");
+}
 
-  Wire.begin(21, 22);
-  Wire.setClock(400000);  // a full screen update then takes ~25 ms of the 64 ms per packet
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  display.setTextColor(SSD1306_WHITE);
-  // If this says "brownout", the power supply sags when WiFi starts.
-  const String lastReset = esp_reset_reason() == ESP_RST_BROWNOUT ? "Last reset: BROWNOUT" : "";
+// LoRa mode: nothing to join, just listen.
+void startLora(const String& lastReset) {
+  codec2 = codec2_create(CODEC2_MODE_3200);
+  if (!startLoraRadio()) {
+    showStatus("LoRa radio not found", lastReset);
+    while (true) delay(1000);
+  }
+}
 
-  setupDac();
-  showStatus("Beep...");
-  beep();
-  batteryBegin();  
+void startWifi(const String& lastReset) {
   showStatus("Connecting to " + String(WIFI_SSID), lastReset);
   // WiFi's radio start-up dips the supply for a moment and the brownout
   // detector resets the board; switch it off just for that moment.
@@ -109,7 +125,28 @@ void setup() {
   WiFi.setSleep(false);  // power save delays packets and makes the sound choppy
 
   udp.begin(AUDIO_PORT);
-  showStatus("IP " + WiFi.localIP().toString(), "Waiting for mic");
+}
+
+void setup() {
+  // WiFi: 80 MHz draws less current, so WiFi start-up doesn't trip the
+  // brownout reset. LoRa has no WiFi, and Codec2 needs the full 240 MHz.
+  setCpuFrequencyMhz(USE_LORA ? 240 : 80);
+  Serial.begin(115200);
+
+  Wire.begin(21, 22);
+  Wire.setClock(400000);  // a full screen update then takes ~25 ms of the 64 ms per packet
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.setTextColor(SSD1306_WHITE);
+  // If this says "brownout", the power supply sags when WiFi starts.
+  const String lastReset = esp_reset_reason() == ESP_RST_BROWNOUT ? "Last reset: BROWNOUT" : "";
+
+  setupDac();
+  showStatus("Beep...");
+  beep();
+  batteryBegin();
+  if (USE_LORA) startLora(lastReset);
+  else startWifi(lastReset);
+  showWaiting();
 }
 
 // Tells the mic board where to send its audio.
@@ -122,35 +159,90 @@ void sayHello() {
   udp.endPacket();
 }
 
-void loop() {
+// Plays `count` 16 kHz samples (-32768..32767) on the DAC.
+void play(const int16_t* samples, size_t count) {
+  // The DAC takes the high byte of each 16-bit word: 0 -> 128 << 8 = silence.
+  for (size_t i = 0; i < count; i++) {
+    dacFrames[i * 2] = dacFrames[i * 2 + 1] = uint16_t(samples[i] + 32768);
+  }
+  size_t written = 0;
+  i2s_write(I2S_NUM_0, dacFrames, count * 2 * sizeof(dacFrames[0]), &written, portMAX_DELAY);
+  playEndMs = max(playEndMs, uint32_t(millis())) + count * 1000 / SAMPLE_RATE;
+}
+
+// Keeps ~20 ms of silence queued between packets. Left to run dry, the I2S
+// driver sends 0, which the DAC plays as 0 V instead of its 128 mid-level:
+// a jump down and back up, heard as a click at every gap.
+void fillGaps() {
+  static const int16_t silence[256] = {};  // 16 ms
+  while (int32_t(playEndMs - millis()) < 20) play(silence, 256);
+}
+
+void receiveUdp() {
   sayHello();
+  if (udp.parsePacket() != sizeof(packet)) return;
+  udp.read(packet, sizeof(packet));
 
-  static uint32_t packetCount = 0, lastPacketMs = 0, lastStatusMs = 0;
-  if (udp.parsePacket() == sizeof(packet)) {
-    udp.read(packet, sizeof(packet));
+  for (size_t i = 0; i < SAMPLES_PER_PACKET; i++) received[i] = int16_t((packet[i] - 128) << 8);
+  play(received, SAMPLES_PER_PACKET);
+  packetCount++;
+  lastPacketMs = millis();
 
-    // The DAC takes the high byte of each 16-bit word: 128 << 8 = silence.
-    for (size_t i = 0; i < SAMPLES_PER_PACKET; i++) {
-      dacFrames[i * 2] = dacFrames[i * 2 + 1] = uint16_t(packet[i] << 8);
+  spectrum.update(received, SAMPLES_PER_PACKET);
+  drawSpectrumScreen(display, spectrum, "SPK <- ." + String(udp.remoteIP()[3]) + "  bat " + getBatteryPercent() + "%");
+}
+
+void receiveLora() {
+  if (LoRa.parsePacket() != sizeof(loraPacket)) return;
+  LoRa.readBytes(loraPacket, sizeof(loraPacket));
+  // parsePacket() put the radio to sleep, and the next packet starts ~10 ms
+  // after this one ended - long before decoding below is done. Without this
+  // second call (which starts listening again) every other packet was lost.
+  LoRa.parsePacket();
+
+  // Packets come every 128-192 ms (the mic sends between mic reads), each
+  // holding 160 ms. Start a new sentence 128 ms behind, so a late packet
+  // doesn't leave a gap.
+  if (millis() - lastPacketMs > 500) {
+    static int16_t silence[SAMPLES_PER_PACKET] = {};
+    play(silence, SAMPLES_PER_PACKET);
+    play(silence, SAMPLES_PER_PACKET);
+  }
+  packetCount++;
+  lastPacketMs = millis();
+
+  for (size_t frame = 0; frame < CODEC2_FRAMES_PER_PACKET; frame++) {
+    codec2_decode(codec2, codecFrame, loraPacket + frame * CODEC2_BYTES_PER_FRAME);
+    // 8 kHz -> 16 kHz: a new sample halfway between each pair.
+    static int16_t previous = 0;
+    for (size_t i = 0; i < CODEC2_SAMPLES_PER_FRAME; i++) {
+      upsampled[i * 2] = int16_t((previous + codecFrame[i]) / 2);
+      upsampled[i * 2 + 1] = codecFrame[i];
+      previous = codecFrame[i];
     }
-    size_t written = 0;
-    i2s_write(I2S_NUM_0, dacFrames, sizeof(dacFrames), &written, portMAX_DELAY);
-    packetCount++;
-    lastPacketMs = millis();
-
-    for (size_t i = 0; i < SAMPLES_PER_PACKET; i++) received[i] = int16_t((packet[i] - 128) << 8);
-    spectrum.update(received, SAMPLES_PER_PACKET);
-    drawSpectrumScreen(display, spectrum, "SPK <- ." + String(udp.remoteIP()[3]) + "  bat " + getBatteryPercent() + "%");
+    play(upsampled, CODEC2_SAMPLES_PER_FRAME * 2);
   }
 
+  // The bars show the last frame; above 4 kHz stays empty, Codec2 doesn't carry it.
+  spectrum.update(upsampled, CODEC2_SAMPLES_PER_FRAME * 2);
+  drawSpectrumScreen(display, spectrum, "SPK " + String(LoRa.packetRssi()) + "dBm  bat " + getBatteryPercent() + "%");
+}
+
+void loop() {
+  fillGaps();
+  if (USE_LORA) receiveLora();
+  else receiveUdp();
+
   // No audio for a while: back to the status screen.
+  static uint32_t lastStatusMs = 0;
   const bool isPlaying = lastPacketMs != 0 && millis() - lastPacketMs < 1000;
   if (!isPlaying && millis() - lastStatusMs > 2000) {
     lastStatusMs = millis();
-    showStatus("IP " + WiFi.localIP().toString(), "Waiting for mic");
+    showWaiting();
   }
   if (isPlaying && millis() - lastStatusMs > 2000) {
     lastStatusMs = millis();
-    Serial.printf("packets %lu from %s\n", packetCount, udp.remoteIP().toString().c_str());
+    if (USE_LORA) Serial.printf("packets %lu, signal %d dBm\n", packetCount, LoRa.packetRssi());
+    else Serial.printf("packets %lu from %s\n", packetCount, udp.remoteIP().toString().c_str());
   }
 }
