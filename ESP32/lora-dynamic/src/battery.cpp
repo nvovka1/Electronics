@@ -23,12 +23,14 @@ void batteryBegin()
     pinMode(VBAT_PIN, INPUT);
 }
 
-uint16_t getBatteryMilliVolts() {
-  uint32_t total = 0;
-  for (uint8_t i = 0; i < 8; i++) {
-    total += analogReadMilliVolts(VBAT_PIN);
-  }
-  return (uint16_t)(total / 8 * VBAT_DIVIDER);
+static uint16_t getBatteryMilliVolts() {
+    uint32_t total = 0;
+
+    for (uint8_t i = 0; i < 8; i++) {
+        total += analogReadMilliVolts(VBAT_PIN);
+    }
+
+    return static_cast<uint16_t>((total / 8) * VBAT_DIVIDER);
 }
 
 uint8_t getBatteryPercent() {

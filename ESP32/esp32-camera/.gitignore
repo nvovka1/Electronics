@@ -1,0 +1,5 @@
+.pio/
+.vscode/
+
+# Local WiFi credentials — copy include/secrets.example.h to include/secrets.h.
+include/secrets.h
